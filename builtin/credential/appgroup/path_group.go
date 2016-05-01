@@ -1,15 +1,17 @@
 package appgroup
 
 import (
+	"fmt"
 	"log"
 	"strings"
 	"time"
 
+	"github.com/fatih/structs"
 	"github.com/hashicorp/vault/logical"
 	"github.com/hashicorp/vault/logical/framework"
 )
 
-type GroupEntry struct {
+type groupStorageEntry struct {
 	GroupName          string        `json:"group_name" structs:"group_name" mapstructure:"group_name"`
 	AppNames           []string      `json:"app_names" structs:"app_names" mapstructure:"app_names"`
 	AdditionalPolicies []string      `json:"additional_policies" structs:"additional_policies" mapstructure:"additional_policies"`
@@ -212,14 +214,52 @@ func (b *backend) pathGroupCreateUpdate(req *logical.Request, data *framework.Fi
 	return nil, nil
 }
 
+func groupEntry(s logical.Storage, groupName string) (*groupStorageEntry, error) {
+	if groupName == "" {
+		return nil, fmt.Errorf("missing group_name")
+	}
+
+	var result groupStorageEntry
+
+	if entry, err := s.Get("group/" + groupName); err != nil {
+		return nil, err
+	} else if entry == nil {
+		return nil, nil
+	} else if err := entry.DecodeJSON(&result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
 func (b *backend) pathGroupRead(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
 	log.Printf("pathGroupCreateUpdate entered\n")
-	return nil, nil
+	groupName := data.Get("group_name").(string)
+	if groupName == "" {
+		return logical.ErrorResponse("missing group_name"), nil
+	}
+
+	group, err := groupEntry(req.Storage, strings.ToLower(groupName))
+	if err != nil {
+		return nil, err
+	}
+	if group == nil {
+		return nil, nil
+	}
+
+	return &logical.Response{
+		Data: structs.New(group).Map(),
+	}, nil
 }
 
 func (b *backend) pathGroupDelete(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
 	log.Printf("pathGroupDelete entered\n")
-	return nil, nil
+	groupName := data.Get("group_name").(string)
+	if groupName == "" {
+		return logical.ErrorResponse("missing group_name"), nil
+	}
+
+	return nil, req.Storage.Delete("app/" + strings.ToLower(groupName))
 }
 
 func (b *backend) pathGroupPoliciesUpdate(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {

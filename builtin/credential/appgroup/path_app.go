@@ -1,15 +1,18 @@
 package appgroup
 
 import (
+	"fmt"
 	"log"
 	"strings"
 	"time"
 
+	"github.com/fatih/structs"
+	"github.com/hashicorp/vault/helper/policyutil"
 	"github.com/hashicorp/vault/logical"
 	"github.com/hashicorp/vault/logical/framework"
 )
 
-type AppEntry struct {
+type appStorageEntry struct {
 	AppName  string        `json:"app_name" structs:"app_name" mapstructure:"app_name"`
 	Policies []string      `json:"policies" structs:"policies" mapstructure:"policies"`
 	NumUses  int           `json:"num_uses" structs:"num_uses" mapstructure:"num_uses"`
@@ -29,6 +32,7 @@ func appPaths(b *backend) []*framework.Path {
 				},
 				"policies": &framework.FieldSchema{
 					Type:        framework.TypeString,
+					Default:     "default",
 					Description: "Comma separated list of policies on the App.",
 				},
 				"num-uses": &framework.FieldSchema{
@@ -202,17 +206,116 @@ will be the duration after which the returned token expires.
 
 func (b *backend) pathAppCreateUpdate(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
 	log.Printf("pathAppCreateUpdate entered\n")
-	return nil, nil
+	appName := data.Get("app_name").(string)
+	if appName == "" {
+		return logical.ErrorResponse("missing app_name"), nil
+	}
+
+	// Check if there is already an entry. If entry exists, this is an
+	// UpdateOperation.
+	app, err := appEntry(req.Storage, strings.ToLower(appName))
+	if err != nil {
+		return nil, err
+	}
+
+	// If entry does not exist, this is a CreateOperation. So, create
+	// a new object.
+	if app == nil {
+		app = &appStorageEntry{}
+	}
+
+	if policiesRaw, ok := data.GetOk("policies"); ok {
+		app.Policies = policyutil.ParsePolicies(policiesRaw.(string))
+	} else if req.Operation == logical.CreateOperation {
+		app.Policies = policyutil.ParsePolicies(data.Get("policies").(string))
+	}
+
+	// Update only if value is supplied. Defaults to zero.
+	if numUsesRaw, ok := data.GetOk("num_uses"); ok {
+		app.NumUses = numUsesRaw.(int)
+	}
+
+	// If TTL value is not provided either during update or create, don't bother.
+	// Core will set the system default value if the policies does not contain
+	// "root" and TTL value is zero.
+	// Update only if value is supplied. Defaults to zero.
+	if ttlRaw, ok := data.GetOk("ttl"); ok {
+		app.TTL = time.Duration(ttlRaw.(int)) * time.Second
+	}
+
+	// Update only if value is supplied. Defaults to zero.
+	if maxTTLRaw, ok := data.GetOk("max_ttl"); ok {
+		app.MaxTTL = time.Duration(maxTTLRaw.(int)) * time.Second
+	}
+
+	// Check that TTL value provided is greater than MaxTTL.
+	//
+	// Do not sanitize the TTL and MaxTTL now, just store them as-is.
+	// Check the System TTL and MaxTTL values at credential issue time
+	// and act accordingly.
+	if app.TTL > app.MaxTTL {
+		return logical.ErrorResponse("ttl should not be greater than max_ttl"), nil
+	}
+
+	// Update only if value is supplied. Defaults to zero.
+	if wrappedRaw, ok := data.GetOk("wrapped"); ok {
+		app.Wrapped = time.Duration(wrappedRaw.(int)) * time.Second
+	}
+
+	// Create a storage entry and save it.
+	if entry, err := logical.StorageEntryJSON("app/"+strings.ToLower(appName), app); err != nil {
+		return nil, err
+	} else {
+		return nil, req.Storage.Put(entry)
+	}
+}
+
+func appEntry(s logical.Storage, appName string) (*appStorageEntry, error) {
+	if appName == "" {
+		return nil, fmt.Errorf("missing app_name")
+	}
+
+	var result appStorageEntry
+
+	if entry, err := s.Get("app/" + appName); err != nil {
+		return nil, err
+	} else if entry == nil {
+		return nil, nil
+	} else if err := entry.DecodeJSON(&result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
 }
 
 func (b *backend) pathAppRead(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
 	log.Printf("pathAppRead entered\n")
-	return nil, nil
+	appName := data.Get("app_name").(string)
+	if appName == "" {
+		return logical.ErrorResponse("missing app_name"), nil
+	}
+
+	app, err := appEntry(req.Storage, strings.ToLower(appName))
+	if err != nil {
+		return nil, err
+	}
+	if app == nil {
+		return nil, nil
+	}
+
+	return &logical.Response{
+		Data: structs.New(app).Map(),
+	}, nil
 }
 
 func (b *backend) pathAppDelete(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
 	log.Printf("pathAppDelete entered\n")
-	return nil, nil
+	appName := data.Get("app_name").(string)
+	if appName == "" {
+		return logical.ErrorResponse("missing app_name"), nil
+	}
+
+	return nil, req.Storage.Delete("app/" + strings.ToLower(appName))
 }
 
 func (b *backend) pathAppPoliciesUpdate(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
