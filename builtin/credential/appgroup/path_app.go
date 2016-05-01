@@ -80,7 +80,6 @@ will be the duration after which the returned token expires.
 			Callbacks: map[logical.Operation]framework.OperationFunc{
 				logical.UpdateOperation: b.pathAppPoliciesUpdate,
 				logical.ReadOperation:   b.pathAppPoliciesRead,
-				logical.DeleteOperation: b.pathAppPoliciesDelete,
 			},
 			HelpSynopsis:    strings.TrimSpace(appHelp["app-policies"][0]),
 			HelpDescription: strings.TrimSpace(appHelp["app-policies"][1]),
@@ -100,7 +99,6 @@ will be the duration after which the returned token expires.
 			Callbacks: map[logical.Operation]framework.OperationFunc{
 				logical.UpdateOperation: b.pathAppNumUsesUpdate,
 				logical.ReadOperation:   b.pathAppNumUsesRead,
-				logical.DeleteOperation: b.pathAppNumUsesDelete,
 			},
 			HelpSynopsis:    strings.TrimSpace(appHelp["app-num-uses"][0]),
 			HelpDescription: strings.TrimSpace(appHelp["app-num-uses"][1]),
@@ -120,7 +118,6 @@ will be the duration after which the returned token expires.
 			Callbacks: map[logical.Operation]framework.OperationFunc{
 				logical.UpdateOperation: b.pathAppTTLUpdate,
 				logical.ReadOperation:   b.pathAppTTLRead,
-				logical.DeleteOperation: b.pathAppTTLDelete,
 			},
 			HelpSynopsis:    strings.TrimSpace(appHelp["app-ttl"][0]),
 			HelpDescription: strings.TrimSpace(appHelp["app-ttl"][1]),
@@ -140,7 +137,6 @@ will be the duration after which the returned token expires.
 			Callbacks: map[logical.Operation]framework.OperationFunc{
 				logical.UpdateOperation: b.pathAppMaxTTLUpdate,
 				logical.ReadOperation:   b.pathAppMaxTTLRead,
-				logical.DeleteOperation: b.pathAppMaxTTLDelete,
 			},
 			HelpSynopsis:    strings.TrimSpace(appHelp["app-max-ttl"][0]),
 			HelpDescription: strings.TrimSpace(appHelp["app-max-ttl"][1]),
@@ -164,7 +160,6 @@ will be the duration after which the returned token expires.
 			Callbacks: map[logical.Operation]framework.OperationFunc{
 				logical.UpdateOperation: b.pathAppWrappedUpdate,
 				logical.ReadOperation:   b.pathAppWrappedRead,
-				logical.DeleteOperation: b.pathAppWrappedDelete,
 			},
 			HelpSynopsis:    strings.TrimSpace(appHelp["app-wrapped"][0]),
 			HelpDescription: strings.TrimSpace(appHelp["app-wrapped"][1]),
@@ -298,22 +293,20 @@ func (b *backend) pathAppRead(req *logical.Request, data *framework.FieldData) (
 		return logical.ErrorResponse("missing app_name"), nil
 	}
 
-	app, err := appEntry(req.Storage, strings.ToLower(appName))
-	if err != nil {
+	if app, err := appEntry(req.Storage, strings.ToLower(appName)); err != nil {
 		return nil, err
-	}
-	if app == nil {
+	} else if app == nil {
 		return nil, nil
+	} else {
+		// Convert the values to second
+		app.TTL = app.TTL / time.Second
+		app.MaxTTL = app.MaxTTL / time.Second
+		app.Wrapped = app.Wrapped / time.Second
+
+		return &logical.Response{
+			Data: structs.New(app).Map(),
+		}, nil
 	}
-
-	// Convert the values to second
-	app.TTL = app.TTL / time.Second
-	app.MaxTTL = app.MaxTTL / time.Second
-	app.Wrapped = app.Wrapped / time.Second
-
-	return &logical.Response{
-		Data: structs.New(app).Map(),
-	}, nil
 }
 
 func (b *backend) pathAppDelete(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
@@ -326,78 +319,215 @@ func (b *backend) pathAppDelete(req *logical.Request, data *framework.FieldData)
 }
 
 func (b *backend) pathAppPoliciesUpdate(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	log.Printf("pathAppPoliciesUpdate entered\n")
-	return nil, nil
+	appName := data.Get("app_name").(string)
+	if appName == "" {
+		return logical.ErrorResponse("missing app_name"), nil
+	}
+
+	app, err := appEntry(req.Storage, strings.ToLower(appName))
+	if err != nil {
+		return nil, err
+	}
+	if app == nil {
+		return nil, nil
+	}
+
+	if policiesRaw, ok := data.GetOk("policies"); ok {
+		app.Policies = policyutil.ParsePolicies(policiesRaw.(string))
+		return nil, setAppEntry(req.Storage, appName, app)
+	} else {
+		return logical.ErrorResponse("missing policies"), nil
+	}
 }
 
 func (b *backend) pathAppPoliciesRead(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	log.Printf("pathAppPoliciesRead entered\n")
-	return nil, nil
-}
+	appName := data.Get("app_name").(string)
+	if appName == "" {
+		return logical.ErrorResponse("missing app_name"), nil
+	}
 
-func (b *backend) pathAppPoliciesDelete(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	log.Printf("pathAppPoliciesDelete entered\n")
-	return nil, nil
+	if app, err := appEntry(req.Storage, strings.ToLower(appName)); err != nil {
+		return nil, err
+	} else if app == nil {
+		return nil, nil
+	} else {
+		return &logical.Response{
+			Data: map[string]interface{}{
+				"policies": app.Policies,
+			},
+		}, nil
+	}
 }
 
 func (b *backend) pathAppNumUsesUpdate(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	log.Printf("pathAppNumUsesUpdate entered\n")
-	return nil, nil
+	appName := data.Get("app_name").(string)
+	if appName == "" {
+		return logical.ErrorResponse("missing app_name"), nil
+	}
+
+	app, err := appEntry(req.Storage, strings.ToLower(appName))
+	if err != nil {
+		return nil, err
+	}
+	if app == nil {
+		return nil, nil
+	}
+
+	if numUsesRaw, ok := data.GetOk("num_uses"); ok {
+		app.NumUses = numUsesRaw.(int)
+		return nil, setAppEntry(req.Storage, appName, app)
+	} else {
+		return logical.ErrorResponse("missing num_uses"), nil
+	}
 }
 
 func (b *backend) pathAppNumUsesRead(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	log.Printf("pathAppNumUsesRead entered\n")
-	return nil, nil
-}
+	appName := data.Get("app_name").(string)
+	if appName == "" {
+		return logical.ErrorResponse("missing app_name"), nil
+	}
 
-func (b *backend) pathAppNumUsesDelete(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	log.Printf("pathAppNumUsesDelete entered\n")
-	return nil, nil
+	if app, err := appEntry(req.Storage, strings.ToLower(appName)); err != nil {
+		return nil, err
+	} else if app == nil {
+		return nil, nil
+	} else {
+		return &logical.Response{
+			Data: map[string]interface{}{
+				"num_uses": app.NumUses,
+			},
+		}, nil
+	}
 }
 
 func (b *backend) pathAppTTLUpdate(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	log.Printf("pathAppTTLUpdate entered\n")
-	return nil, nil
+	appName := data.Get("app_name").(string)
+	if appName == "" {
+		return logical.ErrorResponse("missing app_name"), nil
+	}
+
+	app, err := appEntry(req.Storage, strings.ToLower(appName))
+	if err != nil {
+		return nil, err
+	}
+	if app == nil {
+		return nil, nil
+	}
+
+	if ttlRaw, ok := data.GetOk("ttl"); ok {
+		if app.TTL = time.Duration(ttlRaw.(int)) * time.Second; app.TTL > app.MaxTTL {
+			return logical.ErrorResponse("ttl should not be greater than max_ttl"), nil
+		}
+		return nil, setAppEntry(req.Storage, appName, app)
+	} else {
+		return logical.ErrorResponse("missing ttl"), nil
+	}
 }
 
 func (b *backend) pathAppTTLRead(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	log.Printf("pathAppTTLRead entered\n")
-	return nil, nil
-}
+	appName := data.Get("app_name").(string)
+	if appName == "" {
+		return logical.ErrorResponse("missing app_name"), nil
+	}
 
-func (b *backend) pathAppTTLDelete(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	log.Printf("pathAppTTLDelete entered\n")
-	return nil, nil
+	if app, err := appEntry(req.Storage, strings.ToLower(appName)); err != nil {
+		return nil, err
+	} else if app == nil {
+		return nil, nil
+	} else {
+		app.TTL = app.TTL / time.Second
+		return &logical.Response{
+			Data: map[string]interface{}{
+				"ttl": app.TTL,
+			},
+		}, nil
+	}
 }
 
 func (b *backend) pathAppMaxTTLUpdate(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	log.Printf("pathAppMaxTTLUpdate entered\n")
-	return nil, nil
+	appName := data.Get("app_name").(string)
+	if appName == "" {
+		return logical.ErrorResponse("missing app_name"), nil
+	}
+
+	app, err := appEntry(req.Storage, strings.ToLower(appName))
+	if err != nil {
+		return nil, err
+	}
+	if app == nil {
+		return nil, nil
+	}
+
+	if maxTTLRaw, ok := data.GetOk("max_ttl"); ok {
+		if app.MaxTTL = time.Duration(maxTTLRaw.(int)) * time.Second; app.TTL > app.MaxTTL {
+			return logical.ErrorResponse("max_ttl should be greater than ttl"), nil
+		}
+		return nil, setAppEntry(req.Storage, appName, app)
+	} else {
+		return logical.ErrorResponse("missing max_ttl"), nil
+	}
 }
 
 func (b *backend) pathAppMaxTTLRead(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	log.Printf("pathAppMaxTTLRead entered\n")
-	return nil, nil
-}
+	appName := data.Get("app_name").(string)
+	if appName == "" {
+		return logical.ErrorResponse("missing app_name"), nil
+	}
 
-func (b *backend) pathAppMaxTTLDelete(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	log.Printf("pathAppTTLDelete entered\n")
-	return nil, nil
+	if app, err := appEntry(req.Storage, strings.ToLower(appName)); err != nil {
+		return nil, err
+	} else if app == nil {
+		return nil, nil
+	} else {
+		app.MaxTTL = app.MaxTTL / time.Second
+		return &logical.Response{
+			Data: map[string]interface{}{
+				"max_ttl": app.MaxTTL,
+			},
+		}, nil
+	}
 }
 
 func (b *backend) pathAppWrappedUpdate(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	log.Printf("pathAppWrappedUpdate entered\n")
-	return nil, nil
+	appName := data.Get("app_name").(string)
+	if appName == "" {
+		return logical.ErrorResponse("missing app_name"), nil
+	}
+
+	app, err := appEntry(req.Storage, strings.ToLower(appName))
+	if err != nil {
+		return nil, err
+	}
+	if app == nil {
+		return nil, nil
+	}
+
+	if wrappedRaw, ok := data.GetOk("wrapped"); ok {
+		app.Wrapped = time.Duration(wrappedRaw.(int)) * time.Second
+		return nil, setAppEntry(req.Storage, appName, app)
+	} else {
+		return logical.ErrorResponse("missing wrapped"), nil
+	}
 }
 
 func (b *backend) pathAppWrappedRead(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	log.Printf("pathAppWrappedRead entered\n")
-	return nil, nil
-}
+	appName := data.Get("app_name").(string)
+	if appName == "" {
+		return logical.ErrorResponse("missing app_name"), nil
+	}
 
-func (b *backend) pathAppWrappedDelete(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	log.Printf("pathAppWrappedDelete entered\n")
-	return nil, nil
+	if app, err := appEntry(req.Storage, strings.ToLower(appName)); err != nil {
+		return nil, err
+	} else if app == nil {
+		return nil, nil
+	} else {
+		app.Wrapped = app.Wrapped / time.Second
+		return &logical.Response{
+			Data: map[string]interface{}{
+				"wrapped": app.Wrapped,
+			},
+		}, nil
+	}
 }
 
 func (b *backend) pathAppCredsRead(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {

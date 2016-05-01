@@ -92,7 +92,6 @@ addition to those, a set of policies can be assigned using this parameter.
 			Callbacks: map[logical.Operation]framework.OperationFunc{
 				logical.UpdateOperation: b.pathGroupPoliciesUpdate,
 				logical.ReadOperation:   b.pathGroupPoliciesRead,
-				logical.DeleteOperation: b.pathGroupPoliciesDelete,
 			},
 			HelpSynopsis:    strings.TrimSpace(groupHelp["group-policies"][0]),
 			HelpDescription: strings.TrimSpace(groupHelp["group-policies"][1]),
@@ -112,7 +111,6 @@ addition to those, a set of policies can be assigned using this parameter.
 			Callbacks: map[logical.Operation]framework.OperationFunc{
 				logical.UpdateOperation: b.pathGroupNumUsesUpdate,
 				logical.ReadOperation:   b.pathGroupNumUsesRead,
-				logical.DeleteOperation: b.pathGroupNumUsesDelete,
 			},
 			HelpSynopsis:    strings.TrimSpace(groupHelp["group-num-uses"][0]),
 			HelpDescription: strings.TrimSpace(groupHelp["group-num-uses"][1]),
@@ -132,7 +130,6 @@ addition to those, a set of policies can be assigned using this parameter.
 			Callbacks: map[logical.Operation]framework.OperationFunc{
 				logical.UpdateOperation: b.pathGroupTTLUpdate,
 				logical.ReadOperation:   b.pathGroupTTLRead,
-				logical.DeleteOperation: b.pathGroupTTLDelete,
 			},
 			HelpSynopsis:    strings.TrimSpace(groupHelp["group-ttl"][0]),
 			HelpDescription: strings.TrimSpace(groupHelp["group-ttl"][1]),
@@ -152,7 +149,6 @@ addition to those, a set of policies can be assigned using this parameter.
 			Callbacks: map[logical.Operation]framework.OperationFunc{
 				logical.UpdateOperation: b.pathGroupMaxTTLUpdate,
 				logical.ReadOperation:   b.pathGroupMaxTTLRead,
-				logical.DeleteOperation: b.pathGroupMaxTTLDelete,
 			},
 			HelpSynopsis:    strings.TrimSpace(groupHelp["group-max-ttl"][0]),
 			HelpDescription: strings.TrimSpace(groupHelp["group-max-ttl"][1]),
@@ -176,7 +172,6 @@ will be the duration after which the returned token expires.
 			Callbacks: map[logical.Operation]framework.OperationFunc{
 				logical.UpdateOperation: b.pathGroupWrappedUpdate,
 				logical.ReadOperation:   b.pathGroupWrappedRead,
-				logical.DeleteOperation: b.pathGroupWrappedDelete,
 			},
 			HelpSynopsis:    strings.TrimSpace(groupHelp["group-wrapped"][0]),
 			HelpDescription: strings.TrimSpace(groupHelp["group-wrapped"][1]),
@@ -314,22 +309,20 @@ func (b *backend) pathGroupRead(req *logical.Request, data *framework.FieldData)
 		return logical.ErrorResponse("missing group_name"), nil
 	}
 
-	group, err := groupEntry(req.Storage, strings.ToLower(groupName))
-	if err != nil {
+	if group, err := groupEntry(req.Storage, strings.ToLower(groupName)); err != nil {
 		return nil, err
-	}
-	if group == nil {
+	} else if group == nil {
 		return nil, nil
+	} else {
+		// Convert the values to second
+		group.TTL = group.TTL / time.Second
+		group.MaxTTL = group.MaxTTL / time.Second
+		group.Wrapped = group.Wrapped / time.Second
+
+		return &logical.Response{
+			Data: structs.New(group).Map(),
+		}, nil
 	}
-
-	// Convert the values to second
-	group.TTL = group.TTL / time.Second
-	group.MaxTTL = group.MaxTTL / time.Second
-	group.Wrapped = group.Wrapped / time.Second
-
-	return &logical.Response{
-		Data: structs.New(group).Map(),
-	}, nil
 }
 
 func (b *backend) pathGroupDelete(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
@@ -351,11 +344,6 @@ func (b *backend) pathGroupPoliciesRead(req *logical.Request, data *framework.Fi
 	return nil, nil
 }
 
-func (b *backend) pathGroupPoliciesDelete(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	log.Printf("pathGroupPoliciesDelete entered\n")
-	return nil, nil
-}
-
 func (b *backend) pathGroupNumUsesUpdate(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
 	log.Printf("pathGroupNumUsesUpdate entered\n")
 	return nil, nil
@@ -363,11 +351,6 @@ func (b *backend) pathGroupNumUsesUpdate(req *logical.Request, data *framework.F
 
 func (b *backend) pathGroupNumUsesRead(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
 	log.Printf("pathGroupNumUsesRead entered\n")
-	return nil, nil
-}
-
-func (b *backend) pathGroupNumUsesDelete(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	log.Printf("pathGroupNumUsesDelete entered\n")
 	return nil, nil
 }
 
@@ -381,11 +364,6 @@ func (b *backend) pathGroupTTLRead(req *logical.Request, data *framework.FieldDa
 	return nil, nil
 }
 
-func (b *backend) pathGroupTTLDelete(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	log.Printf("pathGroupTTLDelete entered\n")
-	return nil, nil
-}
-
 func (b *backend) pathGroupMaxTTLUpdate(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
 	log.Printf("pathGroupTTLUpdate entered\n")
 	return nil, nil
@@ -396,11 +374,6 @@ func (b *backend) pathGroupMaxTTLRead(req *logical.Request, data *framework.Fiel
 	return nil, nil
 }
 
-func (b *backend) pathGroupMaxTTLDelete(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	log.Printf("pathGroupTTLDelete entered\n")
-	return nil, nil
-}
-
 func (b *backend) pathGroupWrappedUpdate(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
 	log.Printf("pathGroupWrappedUpdate entered\n")
 	return nil, nil
@@ -408,11 +381,6 @@ func (b *backend) pathGroupWrappedUpdate(req *logical.Request, data *framework.F
 
 func (b *backend) pathGroupWrappedRead(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
 	log.Printf("pathGroupWrappedRead entered\n")
-	return nil, nil
-}
-
-func (b *backend) pathGroupWrappedDelete(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	log.Printf("pathGroupWrappedDelete entered\n")
 	return nil, nil
 }
 
