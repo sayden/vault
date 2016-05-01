@@ -89,6 +89,7 @@ will be the duration after which the returned token expires.
 			Callbacks: map[logical.Operation]framework.OperationFunc{
 				logical.UpdateOperation: b.pathGroupAppsUpdate,
 				logical.ReadOperation:   b.pathGroupAppsRead,
+				logical.DeleteOperation: b.pathGroupAppsDelete,
 			},
 			HelpSynopsis:    strings.TrimSpace(groupHelp["group-apps"][0]),
 			HelpDescription: strings.TrimSpace(groupHelp["group-apps"][1]),
@@ -112,6 +113,7 @@ addition to those, a set of policies can be assigned using this.
 			Callbacks: map[logical.Operation]framework.OperationFunc{
 				logical.UpdateOperation: b.pathGroupAdditionalPoliciesUpdate,
 				logical.ReadOperation:   b.pathGroupAdditionalPoliciesRead,
+				logical.DeleteOperation: b.pathGroupAdditionalPoliciesDelete,
 			},
 			HelpSynopsis:    strings.TrimSpace(groupHelp["group-additional-policies"][0]),
 			HelpDescription: strings.TrimSpace(groupHelp["group-additional-policies"][1]),
@@ -131,6 +133,7 @@ addition to those, a set of policies can be assigned using this.
 			Callbacks: map[logical.Operation]framework.OperationFunc{
 				logical.UpdateOperation: b.pathGroupNumUsesUpdate,
 				logical.ReadOperation:   b.pathGroupNumUsesRead,
+				logical.DeleteOperation: b.pathGroupNumUsesDelete,
 			},
 			HelpSynopsis:    strings.TrimSpace(groupHelp["group-num-uses"][0]),
 			HelpDescription: strings.TrimSpace(groupHelp["group-num-uses"][1]),
@@ -150,6 +153,7 @@ addition to those, a set of policies can be assigned using this.
 			Callbacks: map[logical.Operation]framework.OperationFunc{
 				logical.UpdateOperation: b.pathGroupTTLUpdate,
 				logical.ReadOperation:   b.pathGroupTTLRead,
+				logical.DeleteOperation: b.pathGroupTTLDelete,
 			},
 			HelpSynopsis:    strings.TrimSpace(groupHelp["group-ttl"][0]),
 			HelpDescription: strings.TrimSpace(groupHelp["group-ttl"][1]),
@@ -169,6 +173,7 @@ addition to those, a set of policies can be assigned using this.
 			Callbacks: map[logical.Operation]framework.OperationFunc{
 				logical.UpdateOperation: b.pathGroupMaxTTLUpdate,
 				logical.ReadOperation:   b.pathGroupMaxTTLRead,
+				logical.DeleteOperation: b.pathGroupMaxTTLDelete,
 			},
 			HelpSynopsis:    strings.TrimSpace(groupHelp["group-max-ttl"][0]),
 			HelpDescription: strings.TrimSpace(groupHelp["group-max-ttl"][1]),
@@ -192,6 +197,7 @@ will be the duration after which the returned token expires.
 			Callbacks: map[logical.Operation]framework.OperationFunc{
 				logical.UpdateOperation: b.pathGroupWrappedUpdate,
 				logical.ReadOperation:   b.pathGroupWrappedRead,
+				logical.DeleteOperation: b.pathGroupWrappedDelete,
 			},
 			HelpSynopsis:    strings.TrimSpace(groupHelp["group-wrapped"][0]),
 			HelpDescription: strings.TrimSpace(groupHelp["group-wrapped"][1]),
@@ -230,6 +236,32 @@ will be the duration after which the returned token expires.
 			HelpDescription: strings.TrimSpace(groupHelp["group-creds-specific"][1]),
 		},
 	}
+}
+
+func setGroupEntry(s logical.Storage, groupName string, group *groupStorageEntry) error {
+	if entry, err := logical.StorageEntryJSON("group/"+strings.ToLower(groupName), group); err != nil {
+		return err
+	} else {
+		return s.Put(entry)
+	}
+}
+
+func groupEntry(s logical.Storage, groupName string) (*groupStorageEntry, error) {
+	if groupName == "" {
+		return nil, fmt.Errorf("missing group_name")
+	}
+
+	var result groupStorageEntry
+
+	if entry, err := s.Get("group/" + strings.ToLower(groupName)); err != nil {
+		return nil, err
+	} else if entry == nil {
+		return nil, nil
+	} else if err := entry.DecodeJSON(&result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
 }
 
 func (b *backend) pathGroupCreateUpdate(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
@@ -295,32 +327,6 @@ func (b *backend) pathGroupCreateUpdate(req *logical.Request, data *framework.Fi
 
 	// Store the entry.
 	return nil, setGroupEntry(req.Storage, groupName, group)
-}
-
-func setGroupEntry(s logical.Storage, groupName string, group *groupStorageEntry) error {
-	if entry, err := logical.StorageEntryJSON("group/"+strings.ToLower(groupName), group); err != nil {
-		return err
-	} else {
-		return s.Put(entry)
-	}
-}
-
-func groupEntry(s logical.Storage, groupName string) (*groupStorageEntry, error) {
-	if groupName == "" {
-		return nil, fmt.Errorf("missing group_name")
-	}
-
-	var result groupStorageEntry
-
-	if entry, err := s.Get("group/" + strings.ToLower(groupName)); err != nil {
-		return nil, err
-	} else if entry == nil {
-		return nil, nil
-	} else if err := entry.DecodeJSON(&result); err != nil {
-		return nil, err
-	}
-
-	return &result, nil
 }
 
 func (b *backend) pathGroupRead(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
@@ -395,6 +401,25 @@ func (b *backend) pathGroupAppsRead(req *logical.Request, data *framework.FieldD
 	}
 }
 
+func (b *backend) pathGroupAppsDelete(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+	groupName := data.Get("group_name").(string)
+	if groupName == "" {
+		return logical.ErrorResponse("missing group_name"), nil
+	}
+
+	group, err := groupEntry(req.Storage, strings.ToLower(groupName))
+	if err != nil {
+		return nil, err
+	}
+	if group == nil {
+		return nil, nil
+	}
+
+	group.Apps = (&groupStorageEntry{}).Apps
+
+	return nil, setGroupEntry(req.Storage, groupName, group)
+}
+
 func (b *backend) pathGroupAdditionalPoliciesUpdate(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
 	groupName := data.Get("group_name").(string)
 	if groupName == "" {
@@ -436,6 +461,25 @@ func (b *backend) pathGroupAdditionalPoliciesRead(req *logical.Request, data *fr
 	}
 }
 
+func (b *backend) pathGroupAdditionalPoliciesDelete(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+	groupName := data.Get("group_name").(string)
+	if groupName == "" {
+		return logical.ErrorResponse("missing group_name"), nil
+	}
+
+	group, err := groupEntry(req.Storage, strings.ToLower(groupName))
+	if err != nil {
+		return nil, err
+	}
+	if group == nil {
+		return nil, nil
+	}
+
+	group.AdditionalPolicies = (&groupStorageEntry{}).AdditionalPolicies
+
+	return nil, setGroupEntry(req.Storage, groupName, group)
+}
+
 func (b *backend) pathGroupNumUsesUpdate(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
 	groupName := data.Get("group_name").(string)
 	if groupName == "" {
@@ -475,6 +519,25 @@ func (b *backend) pathGroupNumUsesRead(req *logical.Request, data *framework.Fie
 			},
 		}, nil
 	}
+}
+
+func (b *backend) pathGroupNumUsesDelete(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+	groupName := data.Get("group_name").(string)
+	if groupName == "" {
+		return logical.ErrorResponse("missing group_name"), nil
+	}
+
+	group, err := groupEntry(req.Storage, strings.ToLower(groupName))
+	if err != nil {
+		return nil, err
+	}
+	if group == nil {
+		return nil, nil
+	}
+
+	group.NumUses = (&groupStorageEntry{}).NumUses
+
+	return nil, setGroupEntry(req.Storage, groupName, group)
 }
 
 func (b *backend) pathGroupTTLUpdate(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
@@ -521,6 +584,25 @@ func (b *backend) pathGroupTTLRead(req *logical.Request, data *framework.FieldDa
 	}
 }
 
+func (b *backend) pathGroupTTLDelete(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+	groupName := data.Get("group_name").(string)
+	if groupName == "" {
+		return logical.ErrorResponse("missing group_name"), nil
+	}
+
+	group, err := groupEntry(req.Storage, strings.ToLower(groupName))
+	if err != nil {
+		return nil, err
+	}
+	if group == nil {
+		return nil, nil
+	}
+
+	group.TTL = (&groupStorageEntry{}).TTL
+
+	return nil, setGroupEntry(req.Storage, groupName, group)
+}
+
 func (b *backend) pathGroupMaxTTLUpdate(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
 	groupName := data.Get("group_name").(string)
 	if groupName == "" {
@@ -565,6 +647,25 @@ func (b *backend) pathGroupMaxTTLRead(req *logical.Request, data *framework.Fiel
 	}
 }
 
+func (b *backend) pathGroupMaxTTLDelete(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+	groupName := data.Get("group_name").(string)
+	if groupName == "" {
+		return logical.ErrorResponse("missing group_name"), nil
+	}
+
+	group, err := groupEntry(req.Storage, strings.ToLower(groupName))
+	if err != nil {
+		return nil, err
+	}
+	if group == nil {
+		return nil, nil
+	}
+
+	group.MaxTTL = (&groupStorageEntry{}).MaxTTL
+
+	return nil, setGroupEntry(req.Storage, groupName, group)
+}
+
 func (b *backend) pathGroupWrappedUpdate(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
 	groupName := data.Get("group_name").(string)
 	if groupName == "" {
@@ -605,6 +706,25 @@ func (b *backend) pathGroupWrappedRead(req *logical.Request, data *framework.Fie
 			},
 		}, nil
 	}
+}
+
+func (b *backend) pathGroupWrappedDelete(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+	groupName := data.Get("group_name").(string)
+	if groupName == "" {
+		return logical.ErrorResponse("missing group_name"), nil
+	}
+
+	group, err := groupEntry(req.Storage, strings.ToLower(groupName))
+	if err != nil {
+		return nil, err
+	}
+	if group == nil {
+		return nil, nil
+	}
+
+	group.Wrapped = (&groupStorageEntry{}).Wrapped
+
+	return nil, setGroupEntry(req.Storage, groupName, group)
 }
 
 func (b *backend) pathGroupCredsRead(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
