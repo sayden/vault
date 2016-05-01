@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/fatih/structs"
+	"github.com/hashicorp/go-uuid"
 	"github.com/hashicorp/vault/helper/policyutil"
 	"github.com/hashicorp/vault/logical"
 	"github.com/hashicorp/vault/logical/framework"
@@ -170,6 +171,11 @@ will be the duration after which the returned token expires.
 				"app_name": &framework.FieldSchema{
 					Type:        framework.TypeString,
 					Description: "Name of the App.",
+				},
+				"user_id": &framework.FieldSchema{
+					Type:        framework.TypeString,
+					Default:     "",
+					Description: "NOT USER SUPPLIED",
 				},
 			},
 			Callbacks: map[logical.Operation]framework.OperationFunc{
@@ -531,12 +537,33 @@ func (b *backend) pathAppWrappedRead(req *logical.Request, data *framework.Field
 }
 
 func (b *backend) pathAppCredsRead(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	log.Printf("pathAppCredsRead entered\n")
-	return nil, nil
+	userID, err := uuid.GenerateUUID()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate UserID:%s", err)
+	}
+	data.Raw["user_id"] = userID
+	return handleAppCredsCommon(req, data)
 }
 
 func (b *backend) pathAppCredsSpecificUpdate(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	log.Printf("pathAppCredsSpecificUpdate entered\n")
+	return handleAppCredsCommon(req, data)
+}
+
+func handleAppCredsCommon(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+	log.Printf("handleAppCredsCommon entered\n")
+	appName := data.Get("app_name").(string)
+	if appName == "" {
+		return logical.ErrorResponse("missing app_name"), nil
+	}
+
+	app, err := appEntry(req.Storage, strings.ToLower(appName))
+	if err != nil {
+		return nil, err
+	}
+	if app == nil {
+		return logical.ErrorResponse(fmt.Sprintf("App %s does not exist", appName)), nil
+	}
+	log.Printf("creds: app: %#v\n", app)
 	return nil, nil
 }
 

@@ -535,7 +535,7 @@ func (b *backend) pathGroupMaxTTLUpdate(req *logical.Request, data *framework.Fi
 		return nil, nil
 	}
 
-	if ttlRaw, ok := data.GetOk("max_ttl"); ok {
+	if maxTTLRaw, ok := data.GetOk("max_ttl"); ok {
 		if group.MaxTTL = time.Duration(maxTTLRaw.(int)) * time.Second; group.TTL > group.MaxTTL {
 			return logical.ErrorResponse("max_ttl should be greater than ttl"), nil
 		}
@@ -580,7 +580,7 @@ func (b *backend) pathGroupWrappedUpdate(req *logical.Request, data *framework.F
 	}
 
 	if wrappedRaw, ok := data.GetOk("wrapped"); ok {
-		app.Wrapped = time.Duration(wrappedRaw.(int)) * time.Second
+		group.Wrapped = time.Duration(wrappedRaw.(int)) * time.Second
 		return nil, setGroupEntry(req.Storage, groupName, group)
 	} else {
 		return logical.ErrorResponse("missing wrapped"), nil

@@ -1,29 +1,10 @@
 package appgroup
 
 import (
-	"time"
-
 	"github.com/hashicorp/vault/helper/salt"
 	"github.com/hashicorp/vault/logical"
 	"github.com/hashicorp/vault/logical/framework"
 )
-
-type UserIDType int
-
-const (
-	AppUserID UserIDType = iota
-	GroupUserID
-	GenericUserID
-)
-
-type UserID struct {
-	Type     UserIDType    `json:"type" structs:"type" mapstructure:"type"`
-	AppNames []string      `json:"app_name" structs:"app_name" mapstructure:"app_name"`
-	Policies []string      `json:"policies" structs:"policies" mapstructure:"policies"`
-	TTL      time.Duration `json:"ttl" structs:"ttl" mapstructure:"ttl"`
-	MaxTTL   time.Duration `json:"max_ttl" structs:"max_ttl" mapstructure:"max_ttl"`
-	Wrapped  time.Duration `json:"wrapped" structs:"wrapped" mapstructure:"wrapped"`
-}
 
 func Factory(conf *logical.BackendConfig) (logical.Backend, error) {
 	b, err := Backend(conf)
@@ -47,7 +28,7 @@ func Backend(conf *logical.BackendConfig) (*framework.Backend, error) {
 		Salt: salt,
 	}
 
-	// Attach the endpoints that are to be handled by the backend
+	// Attach the paths and secrets that are to be handled by the backend
 	b.Backend = &framework.Backend{
 		Help:      backendHelp,
 		AuthRenew: b.pathLoginRenew,
@@ -55,6 +36,9 @@ func Backend(conf *logical.BackendConfig) (*framework.Backend, error) {
 			Unauthenticated: []string{
 				"login",
 			},
+		},
+		Secrets: []*framework.Secret{
+			secretUserID(b),
 		},
 		Paths: framework.PathAppend(
 			appPaths(b),
