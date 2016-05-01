@@ -13,6 +13,7 @@ func pathLogin(b *backend) *framework.Path {
 		Fields: map[string]*framework.FieldSchema{
 			"user_id": &framework.FieldSchema{
 				Type:        framework.TypeString,
+				Default:     "",
 				Description: "UserID of the App.",
 			},
 		},

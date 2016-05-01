@@ -7,13 +7,13 @@ import (
 	"time"
 
 	"github.com/fatih/structs"
+	"github.com/hashicorp/vault/helper/policyutil"
 	"github.com/hashicorp/vault/logical"
 	"github.com/hashicorp/vault/logical/framework"
 )
 
 type groupStorageEntry struct {
-	GroupName          string        `json:"group_name" structs:"group_name" mapstructure:"group_name"`
-	AppNames           []string      `json:"app_names" structs:"app_names" mapstructure:"app_names"`
+	Apps               []string      `json:"apps" structs:"apps" mapstructure:"apps"`
 	AdditionalPolicies []string      `json:"additional_policies" structs:"additional_policies" mapstructure:"additional_policies"`
 	NumUses            int           `json:"num_uses" structs:"num_uses" mapstructure:"num_uses"`
 	TTL                time.Duration `json:"ttl" structs:"ttl" mapstructure:"ttl"`
@@ -30,8 +30,14 @@ func groupPaths(b *backend) []*framework.Path {
 					Type:        framework.TypeString,
 					Description: "Name of the Group.",
 				},
+				"apps": &framework.FieldSchema{
+					Type:        framework.TypeString,
+					Default:     "",
+					Description: "Comma separated list of Apps belonging to the group",
+				},
 				"additional_policies": &framework.FieldSchema{
-					Type: framework.TypeString,
+					Type:    framework.TypeString,
+					Default: "",
 					Description: `Comma separated list of policies for the Group. The UserID created against the Group,
 will have access to the union of all the policies of the Apps. In
 addition to those, a set of policies can be assigned using this.
@@ -75,7 +81,8 @@ will be the duration after which the returned token expires.
 					Description: "Name of the Group.",
 				},
 				"policies": &framework.FieldSchema{
-					Type: framework.TypeString,
+					Type:    framework.TypeString,
+					Default: "",
 					Description: `(Addtional) Comma separated list of policies for the Group. The UserID created against the Group,
 will have access to the union of all the policies of the Apps. In
 addition to those, a set of policies can be assigned using this parameter.
@@ -197,6 +204,7 @@ will be the duration after which the returned token expires.
 				},
 				"user_id": &framework.FieldSchema{
 					Type:        framework.TypeString,
+					Default:     "",
 					Description: "UserID to be attached to the App.",
 				},
 			},
@@ -210,8 +218,76 @@ will be the duration after which the returned token expires.
 }
 
 func (b *backend) pathGroupCreateUpdate(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	log.Printf("pathGroupCreateUpdate entered\n")
-	return nil, nil
+	groupName := data.Get("group_name").(string)
+	if groupName == "" {
+		return logical.ErrorResponse("missing group_name"), nil
+	}
+
+	// Check if there is already an entry. If entry exists, this is an
+	// UpdateOperation.
+	group, err := groupEntry(req.Storage, groupName)
+	if err != nil {
+		return nil, err
+	}
+
+	// If entry does not exist, this is a CreateOperation. So, create
+	// a new object.
+	if group == nil {
+		group = &groupStorageEntry{}
+	}
+
+	// Update only if value is supplied. Defaults to zero.
+	if appsRaw, ok := data.GetOk("apps"); ok {
+		group.Apps = strings.Split(appsRaw.(string), ",")
+	}
+
+	// Update only if value is supplied. Defaults to zero.
+	if additionalPoliciesRaw, ok := data.GetOk("additional_policies"); ok {
+		group.AdditionalPolicies = policyutil.ParsePolicies(additionalPoliciesRaw.(string))
+	}
+
+	// Update only if value is supplied. Defaults to zero.
+	if numUsesRaw, ok := data.GetOk("num_uses"); ok {
+		group.NumUses = numUsesRaw.(int)
+	}
+
+	// If TTL value is not provided either during update or create, don't bother.
+	// Core will set the system default value if the policies does not contain
+	// "root" and TTL value is zero.
+	// Update only if value is supplied. Defaults to zero.
+	if ttlRaw, ok := data.GetOk("ttl"); ok {
+		group.TTL = time.Duration(ttlRaw.(int)) * time.Second
+	}
+
+	// Update only if value is supplied. Defaults to zero.
+	if maxTTLRaw, ok := data.GetOk("max_ttl"); ok {
+		group.MaxTTL = time.Duration(maxTTLRaw.(int)) * time.Second
+	}
+
+	// Check that TTL value provided is greater than MaxTTL.
+	//
+	// Do not sanitize the TTL and MaxTTL now, just store them as-is.
+	// Check the System TTL and MaxTTL values at credential issue time
+	// and act accordingly.
+	if group.TTL > group.MaxTTL {
+		return logical.ErrorResponse("ttl should not be greater than max_ttl"), nil
+	}
+
+	// Update only if value is supplied. Defaults to zero.
+	if wrappedRaw, ok := data.GetOk("wrapped"); ok {
+		group.Wrapped = time.Duration(wrappedRaw.(int)) * time.Second
+	}
+
+	// Store the entry.
+	return nil, setGroupEntry(req.Storage, groupName, group)
+}
+
+func setGroupEntry(s logical.Storage, groupName string, group *groupStorageEntry) error {
+	if entry, err := logical.StorageEntryJSON("group/"+strings.ToLower(groupName), group); err != nil {
+		return err
+	} else {
+		return s.Put(entry)
+	}
 }
 
 func groupEntry(s logical.Storage, groupName string) (*groupStorageEntry, error) {
@@ -221,7 +297,7 @@ func groupEntry(s logical.Storage, groupName string) (*groupStorageEntry, error)
 
 	var result groupStorageEntry
 
-	if entry, err := s.Get("group/" + groupName); err != nil {
+	if entry, err := s.Get("group/" + strings.ToLower(groupName)); err != nil {
 		return nil, err
 	} else if entry == nil {
 		return nil, nil
@@ -233,7 +309,6 @@ func groupEntry(s logical.Storage, groupName string) (*groupStorageEntry, error)
 }
 
 func (b *backend) pathGroupRead(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	log.Printf("pathGroupCreateUpdate entered\n")
 	groupName := data.Get("group_name").(string)
 	if groupName == "" {
 		return logical.ErrorResponse("missing group_name"), nil
@@ -247,19 +322,23 @@ func (b *backend) pathGroupRead(req *logical.Request, data *framework.FieldData)
 		return nil, nil
 	}
 
+	// Convert the values to second
+	group.TTL = group.TTL / time.Second
+	group.MaxTTL = group.MaxTTL / time.Second
+	group.Wrapped = group.Wrapped / time.Second
+
 	return &logical.Response{
 		Data: structs.New(group).Map(),
 	}, nil
 }
 
 func (b *backend) pathGroupDelete(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	log.Printf("pathGroupDelete entered\n")
 	groupName := data.Get("group_name").(string)
 	if groupName == "" {
 		return logical.ErrorResponse("missing group_name"), nil
 	}
 
-	return nil, req.Storage.Delete("app/" + strings.ToLower(groupName))
+	return nil, req.Storage.Delete("group/" + strings.ToLower(groupName))
 }
 
 func (b *backend) pathGroupPoliciesUpdate(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {

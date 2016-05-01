@@ -14,14 +14,17 @@ func genericPaths(b *backend) []*framework.Path {
 			Fields: map[string]*framework.FieldSchema{
 				"groups": &framework.FieldSchema{
 					Type:        framework.TypeString,
+					Default:     "",
 					Description: "Comma separated list of Groups.",
 				},
 				"apps": &framework.FieldSchema{
 					Type:        framework.TypeString,
+					Default:     "",
 					Description: "Comma separated list of Apps.",
 				},
 				"additional_policies": &framework.FieldSchema{
-					Type: framework.TypeString,
+					Type:    framework.TypeString,
+					Default: "",
 					Description: `Comma separated list of policies for the Group. The UserID created against the Group,
 will have access to the union of all the policies of the Apps. In
 addition to those, a set of policies can be assigned using this.

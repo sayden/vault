@@ -13,7 +13,6 @@ import (
 )
 
 type appStorageEntry struct {
-	AppName  string        `json:"app_name" structs:"app_name" mapstructure:"app_name"`
 	Policies []string      `json:"policies" structs:"policies" mapstructure:"policies"`
 	NumUses  int           `json:"num_uses" structs:"num_uses" mapstructure:"num_uses"`
 	TTL      time.Duration `json:"ttl" structs:"ttl" mapstructure:"ttl"`
@@ -35,7 +34,7 @@ func appPaths(b *backend) []*framework.Path {
 					Default:     "default",
 					Description: "Comma separated list of policies on the App.",
 				},
-				"num-uses": &framework.FieldSchema{
+				"num_uses": &framework.FieldSchema{
 					Type:        framework.TypeInt,
 					Description: "Number of times the a UserID can access the App.",
 				},
@@ -74,6 +73,7 @@ will be the duration after which the returned token expires.
 				},
 				"policies": &framework.FieldSchema{
 					Type:        framework.TypeString,
+					Default:     "",
 					Description: "Comma separated list of policies on the App.",
 				},
 			},
@@ -192,6 +192,7 @@ will be the duration after which the returned token expires.
 				},
 				"user_id": &framework.FieldSchema{
 					Type:        framework.TypeString,
+					Default:     "",
 					Description: "UserID to be attached to the App.",
 				},
 			},
@@ -205,7 +206,6 @@ will be the duration after which the returned token expires.
 }
 
 func (b *backend) pathAppCreateUpdate(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	log.Printf("pathAppCreateUpdate entered\n")
 	appName := data.Get("app_name").(string)
 	if appName == "" {
 		return logical.ErrorResponse("missing app_name"), nil
@@ -213,7 +213,7 @@ func (b *backend) pathAppCreateUpdate(req *logical.Request, data *framework.Fiel
 
 	// Check if there is already an entry. If entry exists, this is an
 	// UpdateOperation.
-	app, err := appEntry(req.Storage, strings.ToLower(appName))
+	app, err := appEntry(req.Storage, appName)
 	if err != nil {
 		return nil, err
 	}
@@ -262,11 +262,15 @@ func (b *backend) pathAppCreateUpdate(req *logical.Request, data *framework.Fiel
 		app.Wrapped = time.Duration(wrappedRaw.(int)) * time.Second
 	}
 
-	// Create a storage entry and save it.
+	// Store the entry.
+	return nil, setAppEntry(req.Storage, appName, app)
+}
+
+func setAppEntry(s logical.Storage, appName string, app *appStorageEntry) error {
 	if entry, err := logical.StorageEntryJSON("app/"+strings.ToLower(appName), app); err != nil {
-		return nil, err
+		return err
 	} else {
-		return nil, req.Storage.Put(entry)
+		return s.Put(entry)
 	}
 }
 
@@ -277,7 +281,7 @@ func appEntry(s logical.Storage, appName string) (*appStorageEntry, error) {
 
 	var result appStorageEntry
 
-	if entry, err := s.Get("app/" + appName); err != nil {
+	if entry, err := s.Get("app/" + strings.ToLower(appName)); err != nil {
 		return nil, err
 	} else if entry == nil {
 		return nil, nil
@@ -289,7 +293,6 @@ func appEntry(s logical.Storage, appName string) (*appStorageEntry, error) {
 }
 
 func (b *backend) pathAppRead(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	log.Printf("pathAppRead entered\n")
 	appName := data.Get("app_name").(string)
 	if appName == "" {
 		return logical.ErrorResponse("missing app_name"), nil
@@ -303,13 +306,17 @@ func (b *backend) pathAppRead(req *logical.Request, data *framework.FieldData) (
 		return nil, nil
 	}
 
+	// Convert the values to second
+	app.TTL = app.TTL / time.Second
+	app.MaxTTL = app.MaxTTL / time.Second
+	app.Wrapped = app.Wrapped / time.Second
+
 	return &logical.Response{
 		Data: structs.New(app).Map(),
 	}, nil
 }
 
 func (b *backend) pathAppDelete(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	log.Printf("pathAppDelete entered\n")
 	appName := data.Get("app_name").(string)
 	if appName == "" {
 		return logical.ErrorResponse("missing app_name"), nil
