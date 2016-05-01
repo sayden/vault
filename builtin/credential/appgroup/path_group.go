@@ -74,27 +74,47 @@ will be the duration after which the returned token expires.
 			HelpDescription: strings.TrimSpace(groupHelp["group"][1]),
 		},
 		&framework.Path{
-			Pattern: "group/" + framework.GenericNameRegex("group_name") + "/policies$",
+			Pattern: "group/" + framework.GenericNameRegex("group_name") + "/apps$",
 			Fields: map[string]*framework.FieldSchema{
 				"group_name": &framework.FieldSchema{
 					Type:        framework.TypeString,
 					Description: "Name of the Group.",
 				},
-				"policies": &framework.FieldSchema{
+				"apps": &framework.FieldSchema{
+					Type:        framework.TypeString,
+					Default:     "",
+					Description: "Comma separated list of Apps belonging to the group",
+				},
+			},
+			Callbacks: map[logical.Operation]framework.OperationFunc{
+				logical.UpdateOperation: b.pathGroupAppsUpdate,
+				logical.ReadOperation:   b.pathGroupAppsRead,
+			},
+			HelpSynopsis:    strings.TrimSpace(groupHelp["group-apps"][0]),
+			HelpDescription: strings.TrimSpace(groupHelp["group-apps"][1]),
+		},
+		&framework.Path{
+			Pattern: "group/" + framework.GenericNameRegex("group_name") + "/additional-policies$",
+			Fields: map[string]*framework.FieldSchema{
+				"group_name": &framework.FieldSchema{
+					Type:        framework.TypeString,
+					Description: "Name of the Group.",
+				},
+				"additional_policies": &framework.FieldSchema{
 					Type:    framework.TypeString,
 					Default: "",
-					Description: `(Addtional) Comma separated list of policies for the Group. The UserID created against the Group,
+					Description: `Comma separated list of policies for the Group. The UserID created against the Group,
 will have access to the union of all the policies of the Apps. In
-addition to those, a set of policies can be assigned using this parameter.
+addition to those, a set of policies can be assigned using this.
 `,
 				},
 			},
 			Callbacks: map[logical.Operation]framework.OperationFunc{
-				logical.UpdateOperation: b.pathGroupPoliciesUpdate,
-				logical.ReadOperation:   b.pathGroupPoliciesRead,
+				logical.UpdateOperation: b.pathGroupAdditionalPoliciesUpdate,
+				logical.ReadOperation:   b.pathGroupAdditionalPoliciesRead,
 			},
-			HelpSynopsis:    strings.TrimSpace(groupHelp["group-policies"][0]),
-			HelpDescription: strings.TrimSpace(groupHelp["group-policies"][1]),
+			HelpSynopsis:    strings.TrimSpace(groupHelp["group-additional-policies"][0]),
+			HelpDescription: strings.TrimSpace(groupHelp["group-additional-policies"][1]),
 		},
 		&framework.Path{
 			Pattern: "group/" + framework.GenericNameRegex("group_name") + "/num-uses$",
@@ -334,54 +354,257 @@ func (b *backend) pathGroupDelete(req *logical.Request, data *framework.FieldDat
 	return nil, req.Storage.Delete("group/" + strings.ToLower(groupName))
 }
 
-func (b *backend) pathGroupPoliciesUpdate(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	log.Printf("pathGroupPoliciesUpdate entered\n")
-	return nil, nil
+func (b *backend) pathGroupAppsUpdate(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+	groupName := data.Get("group_name").(string)
+	if groupName == "" {
+		return logical.ErrorResponse("missing group_name"), nil
+	}
+
+	group, err := groupEntry(req.Storage, strings.ToLower(groupName))
+	if err != nil {
+		return nil, err
+	}
+	if group == nil {
+		return nil, nil
+	}
+
+	if appsRaw, ok := data.GetOk("apps"); ok {
+		group.Apps = strings.Split(appsRaw.(string), ",")
+		return nil, setGroupEntry(req.Storage, groupName, group)
+	} else {
+		return logical.ErrorResponse("missing apps"), nil
+	}
 }
 
-func (b *backend) pathGroupPoliciesRead(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	log.Printf("pathGroupPoliciesRead entered\n")
-	return nil, nil
+func (b *backend) pathGroupAppsRead(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+	groupName := data.Get("group_name").(string)
+	if groupName == "" {
+		return logical.ErrorResponse("missing group_name"), nil
+	}
+
+	if group, err := groupEntry(req.Storage, strings.ToLower(groupName)); err != nil {
+		return nil, err
+	} else if group == nil {
+		return nil, nil
+	} else {
+		return &logical.Response{
+			Data: map[string]interface{}{
+				"apps": group.Apps,
+			},
+		}, nil
+	}
+}
+
+func (b *backend) pathGroupAdditionalPoliciesUpdate(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+	groupName := data.Get("group_name").(string)
+	if groupName == "" {
+		return logical.ErrorResponse("missing group_name"), nil
+	}
+
+	group, err := groupEntry(req.Storage, strings.ToLower(groupName))
+	if err != nil {
+		return nil, err
+	}
+	if group == nil {
+		return nil, nil
+	}
+
+	if additionalPoliciesRaw, ok := data.GetOk("additional_policies"); ok {
+		group.AdditionalPolicies = policyutil.ParsePolicies(additionalPoliciesRaw.(string))
+		return nil, setGroupEntry(req.Storage, groupName, group)
+	} else {
+		return logical.ErrorResponse("missing additional_policies"), nil
+	}
+}
+
+func (b *backend) pathGroupAdditionalPoliciesRead(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+	groupName := data.Get("group_name").(string)
+	if groupName == "" {
+		return logical.ErrorResponse("missing group_name"), nil
+	}
+
+	if group, err := groupEntry(req.Storage, strings.ToLower(groupName)); err != nil {
+		return nil, err
+	} else if group == nil {
+		return nil, nil
+	} else {
+		return &logical.Response{
+			Data: map[string]interface{}{
+				"additional_policies": group.AdditionalPolicies,
+			},
+		}, nil
+	}
 }
 
 func (b *backend) pathGroupNumUsesUpdate(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	log.Printf("pathGroupNumUsesUpdate entered\n")
-	return nil, nil
+	groupName := data.Get("group_name").(string)
+	if groupName == "" {
+		return logical.ErrorResponse("missing group_name"), nil
+	}
+
+	group, err := groupEntry(req.Storage, strings.ToLower(groupName))
+	if err != nil {
+		return nil, err
+	}
+	if group == nil {
+		return nil, nil
+	}
+
+	if numUsesRaw, ok := data.GetOk("num_uses"); ok {
+		group.NumUses = numUsesRaw.(int)
+		return nil, setGroupEntry(req.Storage, groupName, group)
+	} else {
+		return logical.ErrorResponse("missing num_uses"), nil
+	}
 }
 
 func (b *backend) pathGroupNumUsesRead(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	log.Printf("pathGroupNumUsesRead entered\n")
-	return nil, nil
+	groupName := data.Get("group_name").(string)
+	if groupName == "" {
+		return logical.ErrorResponse("missing group_name"), nil
+	}
+
+	if group, err := groupEntry(req.Storage, strings.ToLower(groupName)); err != nil {
+		return nil, err
+	} else if group == nil {
+		return nil, nil
+	} else {
+		return &logical.Response{
+			Data: map[string]interface{}{
+				"num_uses": group.NumUses,
+			},
+		}, nil
+	}
 }
 
 func (b *backend) pathGroupTTLUpdate(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	log.Printf("pathGroupTTLUpdate entered\n")
-	return nil, nil
+	groupName := data.Get("group_name").(string)
+	if groupName == "" {
+		return logical.ErrorResponse("missing group_name"), nil
+	}
+
+	group, err := groupEntry(req.Storage, strings.ToLower(groupName))
+	if err != nil {
+		return nil, err
+	}
+	if group == nil {
+		return nil, nil
+	}
+
+	if ttlRaw, ok := data.GetOk("ttl"); ok {
+		if group.TTL = time.Duration(ttlRaw.(int)) * time.Second; group.TTL > group.MaxTTL {
+			return logical.ErrorResponse("ttl should not be greater than max_ttl"), nil
+		}
+		return nil, setGroupEntry(req.Storage, groupName, group)
+	} else {
+		return logical.ErrorResponse("missing ttl"), nil
+	}
 }
 
 func (b *backend) pathGroupTTLRead(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	log.Printf("pathGroupTTLRead entered\n")
-	return nil, nil
+	groupName := data.Get("group_name").(string)
+	if groupName == "" {
+		return logical.ErrorResponse("missing group_name"), nil
+	}
+
+	if group, err := groupEntry(req.Storage, strings.ToLower(groupName)); err != nil {
+		return nil, err
+	} else if group == nil {
+		return nil, nil
+	} else {
+		group.TTL = group.TTL / time.Second
+		return &logical.Response{
+			Data: map[string]interface{}{
+				"ttl": group.TTL,
+			},
+		}, nil
+	}
 }
 
 func (b *backend) pathGroupMaxTTLUpdate(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	log.Printf("pathGroupTTLUpdate entered\n")
-	return nil, nil
+	groupName := data.Get("group_name").(string)
+	if groupName == "" {
+		return logical.ErrorResponse("missing group_name"), nil
+	}
+
+	group, err := groupEntry(req.Storage, strings.ToLower(groupName))
+	if err != nil {
+		return nil, err
+	}
+	if group == nil {
+		return nil, nil
+	}
+
+	if ttlRaw, ok := data.GetOk("max_ttl"); ok {
+		if group.MaxTTL = time.Duration(maxTTLRaw.(int)) * time.Second; group.TTL > group.MaxTTL {
+			return logical.ErrorResponse("max_ttl should be greater than ttl"), nil
+		}
+		return nil, setGroupEntry(req.Storage, groupName, group)
+	} else {
+		return logical.ErrorResponse("missing max_ttl"), nil
+	}
 }
 
 func (b *backend) pathGroupMaxTTLRead(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	log.Printf("pathGroupTTLRead entered\n")
-	return nil, nil
+	groupName := data.Get("group_name").(string)
+	if groupName == "" {
+		return logical.ErrorResponse("missing group_name"), nil
+	}
+
+	if group, err := groupEntry(req.Storage, strings.ToLower(groupName)); err != nil {
+		return nil, err
+	} else if group == nil {
+		return nil, nil
+	} else {
+		group.MaxTTL = group.MaxTTL / time.Second
+		return &logical.Response{
+			Data: map[string]interface{}{
+				"max_ttl": group.MaxTTL,
+			},
+		}, nil
+	}
 }
 
 func (b *backend) pathGroupWrappedUpdate(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	log.Printf("pathGroupWrappedUpdate entered\n")
-	return nil, nil
+	groupName := data.Get("group_name").(string)
+	if groupName == "" {
+		return logical.ErrorResponse("missing group_name"), nil
+	}
+
+	group, err := groupEntry(req.Storage, strings.ToLower(groupName))
+	if err != nil {
+		return nil, err
+	}
+	if group == nil {
+		return nil, nil
+	}
+
+	if wrappedRaw, ok := data.GetOk("wrapped"); ok {
+		app.Wrapped = time.Duration(wrappedRaw.(int)) * time.Second
+		return nil, setGroupEntry(req.Storage, groupName, group)
+	} else {
+		return logical.ErrorResponse("missing wrapped"), nil
+	}
 }
 
 func (b *backend) pathGroupWrappedRead(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	log.Printf("pathGroupWrappedRead entered\n")
-	return nil, nil
+	groupName := data.Get("group_name").(string)
+	if groupName == "" {
+		return logical.ErrorResponse("missing group_name"), nil
+	}
+
+	if group, err := groupEntry(req.Storage, strings.ToLower(groupName)); err != nil {
+		return nil, err
+	} else if group == nil {
+		return nil, nil
+	} else {
+		group.Wrapped = group.Wrapped / time.Second
+		return &logical.Response{
+			Data: map[string]interface{}{
+				"wrapped": group.Wrapped,
+			},
+		}, nil
+	}
 }
 
 func (b *backend) pathGroupCredsRead(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
@@ -395,12 +618,13 @@ func (b *backend) pathGroupCredsSpecificUpdate(req *logical.Request, data *frame
 }
 
 var groupHelp = map[string][2]string{
-	"group":                {"help", "desc"},
-	"group-policies":       {"help", "desc"},
-	"group-num-uses":       {"help", "desc"},
-	"group-ttl":            {"help", "desc"},
-	"group-max-ttl":        {"help", "desc"},
-	"group-wrgrouped":      {"help", "desc"},
-	"group-creds":          {"help", "desc"},
-	"group-creds-specific": {"help", "desc"},
+	"group":                     {"help", "desc"},
+	"group-apps":                {"help", "desc"},
+	"group-additional-policies": {"help", "desc"},
+	"group-num-uses":            {"help", "desc"},
+	"group-ttl":                 {"help", "desc"},
+	"group-max-ttl":             {"help", "desc"},
+	"group-wrgrouped":           {"help", "desc"},
+	"group-creds":               {"help", "desc"},
+	"group-creds-specific":      {"help", "desc"},
 }
