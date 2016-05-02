@@ -642,15 +642,14 @@ func (b *backend) pathAppCredsRead(req *logical.Request, data *framework.FieldDa
 		return nil, fmt.Errorf("failed to generate UserID:%s", err)
 	}
 	data.Raw["user_id"] = userID
-	return handleAppCredsCommon(req, data)
+	return b.handleAppCredsCommon(req, data)
 }
 
 func (b *backend) pathAppCredsSpecificUpdate(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	return handleAppCredsCommon(req, data)
+	return b.handleAppCredsCommon(req, data)
 }
 
-func handleAppCredsCommon(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	log.Printf("handleAppCredsCommon entered\n")
+func (b *backend) handleAppCredsCommon(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
 	appName := data.Get("app_name").(string)
 	if appName == "" {
 		return logical.ErrorResponse("missing app_name"), nil
@@ -663,7 +662,9 @@ func handleAppCredsCommon(req *logical.Request, data *framework.FieldData) (*log
 	if app == nil {
 		return logical.ErrorResponse(fmt.Sprintf("App %s does not exist", appName)), nil
 	}
-	log.Printf("creds: app: %#v\n", app)
+
+	resp := b.Secret(SecretUserIDType).Response(nil, nil)
+	log.Printf("creds: resp: %#v\n", resp)
 	return nil, nil
 }
 

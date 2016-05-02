@@ -25,7 +25,7 @@ func Backend(conf *logical.BackendConfig) (*framework.Backend, error) {
 
 	// Create a backend object
 	b := &backend{
-		Salt: salt,
+		salt: salt,
 	}
 
 	// Attach the paths and secrets that are to be handled by the backend
@@ -54,7 +54,7 @@ func Backend(conf *logical.BackendConfig) (*framework.Backend, error) {
 
 type backend struct {
 	*framework.Backend
-	Salt *salt.Salt
+	salt *salt.Salt
 }
 
 const backendHelp = `
