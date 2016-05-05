@@ -213,7 +213,7 @@ will be the duration after which the returned token expires.
 				"user_id": &framework.FieldSchema{
 					Type:        framework.TypeString,
 					Default:     "",
-					Description: "NOT USER SUPPLIED",
+					Description: "NOT USER SUPPLIED. UNDOCUMENTED.",
 				},
 			},
 			Callbacks: map[logical.Operation]framework.OperationFunc{
@@ -776,6 +776,7 @@ func (b *backend) handleGroupCredsCommon(req *logical.Request, data *framework.F
 		return nil, err
 	}
 
+	policies := fetchGroupPolicies(group.Apps)
 	// TODO: check if all the apps in the group are still existing.
 	// TODO: prepare a combined set of policies from all the apps.
 	// TODO: append additional policies to it.
@@ -797,6 +798,13 @@ func (b *backend) handleGroupCredsCommon(req *logical.Request, data *framework.F
 			"user_id": userID,
 		},
 	}, nil
+}
+
+func fetchGroupPolicies(apps []string) ([]string, error) {
+	var policies []string
+	for _, app := range apps {
+
+	}
 }
 
 func prepareGroupUserID(groupName string, group *groupStorageEntry, userID string) (string, error) {

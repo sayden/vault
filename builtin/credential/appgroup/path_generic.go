@@ -1,8 +1,9 @@
 package appgroup
 
 import (
-	"log"
+	"fmt"
 
+	"github.com/hashicorp/go-uuid"
 	"github.com/hashicorp/vault/logical"
 	"github.com/hashicorp/vault/logical/framework"
 )
@@ -49,6 +50,11 @@ UserID will not be returned. Instead a new token will be returned. This token
 will have the UserID stored in its Cubbyhole. The value represented by 'wrapped'
 will be the duration after which the returned token expires.
 `,
+				},
+				"user_id": &framework.FieldSchema{
+					Type:        framework.TypeString,
+					Default:     "",
+					Description: "NOT USER SUPPLIED. UNDOCUMENTED.",
 				},
 			},
 
@@ -111,13 +117,16 @@ will be the duration after which the returned token expires.
 }
 
 func (b *backend) pathGenericCredsUpdate(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	log.Printf("pathGenericCredsRead entered\n")
-	return nil, nil
+	userID, err := uuid.GenerateUUID()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate UserID:%s", err)
+	}
+	data.Raw["user_id"] = userID
+	return b.handleGenericCredsCommon(req, data)
 }
 
 func (b *backend) pathGenericCredsSpecificUpdate(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	log.Printf("pathGenericCredsSpecificUpdate entered\n")
-	return nil, nil
+	return b.handleGenericCredsCommon(req, data)
 }
 
 const pathGenericCredsSpecificHelpSys = `

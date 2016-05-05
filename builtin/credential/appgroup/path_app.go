@@ -180,7 +180,7 @@ will be the duration after which the returned token expires.
 				"user_id": &framework.FieldSchema{
 					Type:        framework.TypeString,
 					Default:     "",
-					Description: "NOT USER SUPPLIED",
+					Description: "NOT USER SUPPLIED. UNDOCUMENTED.",
 				},
 			},
 			Callbacks: map[logical.Operation]framework.OperationFunc{
