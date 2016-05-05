@@ -280,7 +280,7 @@ func (b *backend) pathAppCreateUpdate(req *logical.Request, data *framework.Fiel
 		app.MaxTTL = time.Duration(maxTTLRaw.(int)) * time.Second
 	}
 
-	// Check that TTL value provided is greater than MaxTTL.
+	// Check that TTL value provided is less than MaxTTL.
 	//
 	// Do not sanitize the TTL and MaxTTL now, just store them as-is.
 	// Check the System TTL and MaxTTL values at credential issue time
@@ -680,11 +680,7 @@ func (b *backend) handleAppCredsCommon(req *logical.Request, data *framework.Fie
 	}
 
 	userIDEntry := &userIDStorageEntry{
-		SelectorType: selectorTypeApp,
-		AppNames:     []string{appName},
-		Policies:     app.Policies,
-		NumUses:      app.NumUses,
-		Wrapped:      app.Wrapped,
+		NumUses: app.NumUses,
 	}
 
 	if err = b.setUserIDEntry(req.Storage, selectorTypeApp, userID, userIDEntry); err != nil {

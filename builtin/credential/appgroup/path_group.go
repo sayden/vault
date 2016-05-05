@@ -317,7 +317,7 @@ func (b *backend) pathGroupCreateUpdate(req *logical.Request, data *framework.Fi
 		group.MaxTTL = time.Duration(maxTTLRaw.(int)) * time.Second
 	}
 
-	// Check that TTL value provided is greater than MaxTTL.
+	// Check that TTL value provided is less than MaxTTL.
 	//
 	// Do not sanitize the TTL and MaxTTL now, just store them as-is.
 	// Check the System TTL and MaxTTL values at credential issue time
@@ -776,23 +776,8 @@ func (b *backend) handleGroupCredsCommon(req *logical.Request, data *framework.F
 		return nil, err
 	}
 
-	policies, err := fetchAppsPolicies(req.Storage, group.Apps)
-	if err != nil {
-		return nil, err
-	}
-	policies = append(policies, group.AdditionalPolicies...)
-	policies = policyutil.SanitizePolicies(policies)
-
-	if len(policies) == 0 {
-		return nil, fmt.Errorf("effective policies from the apps of group are empty")
-	}
-
 	userIDEntry := &userIDStorageEntry{
-		SelectorType: selectorTypeGroup,
-		AppNames:     group.Apps,
-		Policies:     policies,
-		NumUses:      group.NumUses,
-		Wrapped:      group.Wrapped,
+		NumUses: group.NumUses,
 	}
 
 	if err = b.setUserIDEntry(req.Storage, selectorTypeGroup, userID, userIDEntry); err != nil {

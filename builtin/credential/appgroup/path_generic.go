@@ -3,7 +3,6 @@ package appgroup
 import (
 	"encoding/base64"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
@@ -187,31 +186,10 @@ func (b *backend) handleGenericCredsCommon(req *logical.Request, data *framework
 		return logical.ErrorResponse("missing groups and/or apps"), nil
 	}
 
-	var policies []string
-	var apps []string
-	for _, groupName := range generic.Groups {
-		group, err := groupEntry(req.Storage, groupName)
-		if err != nil {
-			return nil, err
-		}
-		groupPolicies, err := fetchAppsPolicies(req.Storage, group.Apps)
-		if err != nil {
-			return nil, err
-		}
-		policies = append(policies, groupPolicies...)
-		apps = append(apps, group.Apps...)
+	// Check that TTL value provided is less than MaxTTL.
+	if generic.TTL > generic.MaxTTL {
+		return logical.ErrorResponse("ttl should not be greater than max_ttl"), nil
 	}
-
-	for _, appName := range generic.Apps {
-		app, err := appEntry(req.Storage, appName)
-		if err != nil {
-			return nil, err
-		}
-		policies = append(policies, app.Policies...)
-		apps = append(apps, appName)
-	}
-
-	// TODO: ttl, maxttl, wrapped validations
 
 	genericName, err := randomName()
 	if err != nil {
@@ -239,23 +217,8 @@ func (b *backend) handleGenericCredsCommon(req *logical.Request, data *framework
 		return nil, err
 	}
 
-	policies = policyutil.SanitizePolicies(policies)
-	if len(policies) == 0 {
-		return nil, fmt.Errorf("effective policies derived from specified groups and/or apps are empty")
-	}
-	log.Printf("policies: %s", policies)
-
-	apps = strutil.RemoveDuplicates(apps)
-	if len(apps) == 0 {
-		return nil, fmt.Errorf("effective apps derived from specified groups and/or apps are empty")
-	}
-
 	userIDEntry := &userIDStorageEntry{
-		SelectorType: selectorTypeGeneric,
-		AppNames:     apps,
-		Policies:     policies,
-		NumUses:      generic.NumUses,
-		Wrapped:      generic.Wrapped,
+		NumUses: generic.NumUses,
 	}
 
 	if err = b.setUserIDEntry(req.Storage, selectorTypeGeneric, userID, userIDEntry); err != nil {
