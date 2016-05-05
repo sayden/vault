@@ -93,7 +93,7 @@ will be the duration after which the returned token expires.
 					Type:        framework.TypeString,
 					Description: "Name of the App.",
 				},
-				"num-uses": &framework.FieldSchema{
+				"num_uses": &framework.FieldSchema{
 					Type:        framework.TypeInt,
 					Description: "Number of times the a UserID can access the App.",
 				},

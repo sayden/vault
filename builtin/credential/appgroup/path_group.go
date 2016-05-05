@@ -14,12 +14,12 @@ import (
 
 type groupStorageEntry struct {
 	Apps               []string      `json:"apps" structs:"apps" mapstructure:"apps"`
-	AdditionalPolicies []string      `json:"additional_policies" structs:"additional_policies" mapstructure:"additional_policies"`
 	NumUses            int           `json:"num_uses" structs:"num_uses" mapstructure:"num_uses"`
 	TTL                time.Duration `json:"ttl" structs:"ttl" mapstructure:"ttl"`
 	MaxTTL             time.Duration `json:"max_ttl" structs:"max_ttl" mapstructure:"max_ttl"`
 	Wrapped            time.Duration `json:"wrapped" structs:"wrapped" mapstructure:"wrapped"`
 	HMACKey            string        `json:"hmac_key" structs:"hmac_key" mapstructure:"hmac_key"`
+	AdditionalPolicies []string      `json:"additional_policies" structs:"additional_policies" mapstructure:"additional_policies"`
 }
 
 func groupPaths(b *backend) []*framework.Path {
@@ -44,7 +44,7 @@ will have access to the union of all the policies of the Apps. In
 addition to those, a set of policies can be assigned using this.
 `,
 				},
-				"num-uses": &framework.FieldSchema{
+				"num_uses": &framework.FieldSchema{
 					Type:        framework.TypeInt,
 					Description: "Number of times the a UserID can access the Apps represented by the Group.",
 				},
@@ -126,7 +126,7 @@ addition to those, a set of policies can be assigned using this.
 					Type:        framework.TypeString,
 					Description: "Name of the Group.",
 				},
-				"num-uses": &framework.FieldSchema{
+				"num_uses": &framework.FieldSchema{
 					Type:        framework.TypeInt,
 					Description: "Number of times the a UserID can access the Apps represented by the Group.",
 				},
@@ -776,17 +776,23 @@ func (b *backend) handleGroupCredsCommon(req *logical.Request, data *framework.F
 		return nil, err
 	}
 
-	policies := fetchGroupPolicies(group.Apps)
-	// TODO: check if all the apps in the group are still existing.
-	// TODO: prepare a combined set of policies from all the apps.
-	// TODO: append additional policies to it.
+	policies, err := fetchPolicies(req.Storage, group.Apps)
+	if err != nil {
+		return nil, err
+	}
+	policies = append(policies, group.AdditionalPolicies...)
+	policies = policyutil.SanitizePolicies(policies)
+
+	if len(policies) == 0 {
+		return nil, fmt.Errorf("effective policies on the group is empty")
+	}
+
 	userIDEntry := &userIDStorageEntry{
 		SelectorType: selectorTypeGroup,
 		AppNames:     group.Apps,
-		// TODO: replace these policies with the combined set of policies.
-		Policies: group.AdditionalPolicies,
-		NumUses:  group.NumUses,
-		Wrapped:  group.Wrapped,
+		Policies:     policies,
+		NumUses:      group.NumUses,
+		Wrapped:      group.Wrapped,
 	}
 
 	if err = b.setUserIDEntry(req.Storage, selectorTypeGroup, userID, userIDEntry); err != nil {
@@ -800,11 +806,19 @@ func (b *backend) handleGroupCredsCommon(req *logical.Request, data *framework.F
 	}, nil
 }
 
-func fetchGroupPolicies(apps []string) ([]string, error) {
+func fetchPolicies(s logical.Storage, apps []string) ([]string, error) {
 	var policies []string
-	for _, app := range apps {
-
+	for _, appName := range apps {
+		app, err := appEntry(s, appName)
+		if err != nil {
+			return nil, err
+		}
+		if app == nil {
+			return nil, fmt.Errorf("app %s does not exist", appName)
+		}
+		policies = append(policies, app.Policies...)
 	}
+	return policies, nil
 }
 
 func prepareGroupUserID(groupName string, group *groupStorageEntry, userID string) (string, error) {
@@ -821,7 +835,7 @@ func prepareGroupUserID(groupName string, group *groupStorageEntry, userID strin
 	// Attach the selector to the user ID.
 	userID = fmt.Sprintf("group=%s:%s", groupName, userID)
 
-	// Attach HMAC to the user ID.
+	// Attach HMAC to the user IDe.
 	return appendHMAC(userID, group.HMACKey)
 }
 
