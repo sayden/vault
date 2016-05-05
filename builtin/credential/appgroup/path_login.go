@@ -78,6 +78,15 @@ func (b *backend) pathLoginUpdate(req *logical.Request, data *framework.FieldDat
 		resp.Auth.Policies = group.AdditionalPolicies
 		resp.Auth.LeaseOptions.TTL = group.TTL
 	case selectorTypeGeneric:
+		generic, err := genericEntry(req.Storage, parseResp.SelectorValue)
+		if err != nil {
+			return nil, err
+		}
+		if generic == nil {
+			return nil, fmt.Errorf("generic credential referred by the user ID does not exist")
+		}
+		resp.Auth.Policies = generic.AdditionalPolicies
+		resp.Auth.LeaseOptions.TTL = generic.TTL
 	default:
 		return nil, fmt.Errorf("unknown selector type")
 	}

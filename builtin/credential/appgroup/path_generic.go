@@ -3,6 +3,7 @@ package appgroup
 import (
 	"encoding/base64"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -182,13 +183,108 @@ func (b *backend) handleGenericCredsCommon(req *logical.Request, data *framework
 		Wrapped:            time.Duration(data.Get("wrapped").(int)) * time.Second,
 	}
 
+	if len(generic.Groups) == 0 && len(generic.Apps) == 0 {
+		return logical.ErrorResponse("missing groups and/or apps"), nil
+	}
+
+	var policies []string
+	var apps []string
+	for _, groupName := range generic.Groups {
+		group, err := groupEntry(req.Storage, groupName)
+		if err != nil {
+			return nil, err
+		}
+		groupPolicies, err := fetchAppsPolicies(req.Storage, group.Apps)
+		if err != nil {
+			return nil, err
+		}
+		policies = append(policies, groupPolicies...)
+		apps = append(apps, group.Apps...)
+	}
+
+	for _, appName := range generic.Apps {
+		app, err := appEntry(req.Storage, appName)
+		if err != nil {
+			return nil, err
+		}
+		policies = append(policies, app.Policies...)
+		apps = append(apps, appName)
+	}
+
+	// TODO: ttl, maxttl, wrapped validations
+
 	genericName, err := randomName()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate a name for generic entry")
 	}
 
+	// Maintain a per-entry HMAC key.
+	generic.HMACKey, err = uuid.GenerateUUID()
+	if err != nil || generic.HMACKey == "" {
+		return nil, fmt.Errorf("failed to generate uuid HMAC key: %v", err)
+	}
+
 	// Store the entry.
-	return nil, setGenericEntry(req.Storage, genericName, generic)
+	if err := setGenericEntry(req.Storage, genericName, generic); err != nil {
+		return nil, err
+	}
+
+	userIDRaw := data.Get("user_id").(string)
+	if userIDRaw == "" {
+		return logical.ErrorResponse("missing user_id"), nil
+	}
+
+	userID, err := prepareGenericUserID(genericName, generic, userIDRaw)
+	if err != nil {
+		return nil, err
+	}
+
+	policies = policyutil.SanitizePolicies(policies)
+	if len(policies) == 0 {
+		return nil, fmt.Errorf("effective policies derived from specified groups and/or apps are empty")
+	}
+	log.Printf("policies: %s", policies)
+
+	apps = strutil.RemoveDuplicates(apps)
+	if len(apps) == 0 {
+		return nil, fmt.Errorf("effective apps derived from specified groups and/or apps are empty")
+	}
+
+	userIDEntry := &userIDStorageEntry{
+		SelectorType: selectorTypeGeneric,
+		AppNames:     apps,
+		Policies:     policies,
+		NumUses:      generic.NumUses,
+		Wrapped:      generic.Wrapped,
+	}
+
+	if err = b.setUserIDEntry(req.Storage, selectorTypeGeneric, userID, userIDEntry); err != nil {
+		return nil, fmt.Errorf("failed to store user ID: %s", err)
+	}
+
+	return &logical.Response{
+		Data: map[string]interface{}{
+			"user_id": userID,
+		},
+	}, nil
+}
+
+func prepareGenericUserID(genericName string, generic *genericStorageEntry, userID string) (string, error) {
+	if userID == "" {
+		return "", fmt.Errorf("missing userID")
+	}
+	if genericName == "" {
+		return "", fmt.Errorf("missing genericName")
+	}
+	if generic == nil {
+		return "", fmt.Errorf("nil generic")
+	}
+
+	// Attach the selector to the user ID.
+	userID = fmt.Sprintf("generic=%s:%s", genericName, userID)
+
+	// Attach HMAC to the user IDe.
+	return appendHMAC(userID, generic.HMACKey)
 }
 
 // Create a random name for generic entry.

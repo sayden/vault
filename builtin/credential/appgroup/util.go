@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hashicorp/vault/helper/strutil"
 	"github.com/hashicorp/vault/logical"
 )
 
@@ -48,39 +49,47 @@ func (b *backend) parseAndVerifyUserID(s logical.Storage, userID string) (*parse
 
 	// Extract out the selector
 	selector := fields[0]
-	selectorFields := strings.Split(selector, "=")
+	selectorFields := strings.SplitN(selector, "=", 2)
 	if len(selectorFields) != 2 {
-		return nil, fmt.Errorf("invalid selector in the user ID")
+		return nil, fmt.Errorf("invalid length for selector in user ID")
 	}
 	selectorType := strings.TrimSpace(selectorFields[0])
 	selectorValue := strings.TrimSpace(selectorFields[1])
 	if selectorType == "" || selectorValue == "" {
-		return nil, fmt.Errorf("invalid selector in the user ID")
+		return nil, fmt.Errorf("selector field or value of the user ID is empty")
 	}
 
 	hmacKey := ""
 	switch selectorType {
-	case "app":
+	case selectorTypeApp:
 		app, err := appEntry(s, selectorValue)
 		if err != nil {
 			return nil, err
 		}
 		if app == nil {
-			return nil, fmt.Errorf("invalid app in user ID")
+			return nil, fmt.Errorf("invalid app credential selector in user ID")
 		}
 		hmacKey = app.HMACKey
-	case "group":
+	case selectorTypeGroup:
 		group, err := groupEntry(s, selectorValue)
 		if err != nil {
 			return nil, err
 		}
 		if group == nil {
-			return nil, fmt.Errorf("invalid group in user ID")
+			return nil, fmt.Errorf("invalid group credential in user ID")
 		}
 		hmacKey = group.HMACKey
-	case "generic":
+	case selectorTypeGeneric:
+		generic, err := genericEntry(s, selectorValue)
+		if err != nil {
+			return nil, err
+		}
+		if generic == nil {
+			return nil, fmt.Errorf("invalid generic credential in user ID")
+		}
+		hmacKey = generic.HMACKey
 	default:
-		return nil, fmt.Errorf("invalid selector in the user ID")
+		return nil, fmt.Errorf("invalid selector type in the user ID")
 	}
 
 	// Extract out the HMAC.
@@ -169,4 +178,20 @@ func createHMACBase64(key, value string) (string, error) {
 
 	// base64 encode the hmac bytes.
 	return base64.StdEncoding.EncodeToString(hm.Sum(nil)), nil
+}
+
+// Iterates through all the apps and fetches the policies of each.
+func fetchAppsPolicies(s logical.Storage, apps []string) ([]string, error) {
+	var policies []string
+	for _, appName := range apps {
+		app, err := appEntry(s, appName)
+		if err != nil {
+			return nil, err
+		}
+		if app == nil {
+			return nil, fmt.Errorf("app %s does not exist", appName)
+		}
+		policies = append(policies, app.Policies...)
+	}
+	return strutil.RemoveDuplicates(policies), nil
 }

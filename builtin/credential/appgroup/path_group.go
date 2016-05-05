@@ -331,7 +331,7 @@ func (b *backend) pathGroupCreateUpdate(req *logical.Request, data *framework.Fi
 		group.Wrapped = time.Duration(wrappedRaw.(int)) * time.Second
 	}
 
-	// Maintain a per-app HMAC key.
+	// Maintain a per-group HMAC key.
 	group.HMACKey, err = uuid.GenerateUUID()
 	if err != nil || group.HMACKey == "" {
 		return nil, fmt.Errorf("failed to generate uuid HMAC key: %v", err)
@@ -776,7 +776,7 @@ func (b *backend) handleGroupCredsCommon(req *logical.Request, data *framework.F
 		return nil, err
 	}
 
-	policies, err := fetchPolicies(req.Storage, group.Apps)
+	policies, err := fetchAppsPolicies(req.Storage, group.Apps)
 	if err != nil {
 		return nil, err
 	}
@@ -784,7 +784,7 @@ func (b *backend) handleGroupCredsCommon(req *logical.Request, data *framework.F
 	policies = policyutil.SanitizePolicies(policies)
 
 	if len(policies) == 0 {
-		return nil, fmt.Errorf("effective policies on the group is empty")
+		return nil, fmt.Errorf("effective policies from the apps of group are empty")
 	}
 
 	userIDEntry := &userIDStorageEntry{
@@ -804,21 +804,6 @@ func (b *backend) handleGroupCredsCommon(req *logical.Request, data *framework.F
 			"user_id": userID,
 		},
 	}, nil
-}
-
-func fetchPolicies(s logical.Storage, apps []string) ([]string, error) {
-	var policies []string
-	for _, appName := range apps {
-		app, err := appEntry(s, appName)
-		if err != nil {
-			return nil, err
-		}
-		if app == nil {
-			return nil, fmt.Errorf("app %s does not exist", appName)
-		}
-		policies = append(policies, app.Policies...)
-	}
-	return policies, nil
 }
 
 func prepareGroupUserID(groupName string, group *groupStorageEntry, userID string) (string, error) {
