@@ -1,6 +1,7 @@
 package appgroup
 
 import (
+	"fmt"
 	"log"
 
 	"github.com/hashicorp/vault/logical"
@@ -35,8 +36,53 @@ func (b *backend) pathLoginUpdate(req *logical.Request, data *framework.FieldDat
 	if userID == "" {
 		return logical.ErrorResponse("user_id"), nil
 	}
-	b.validateUserID(req.Storage, userID)
-	return nil, nil
+	parseResp, err := b.parseAndVerifyUserID(req.Storage, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse and verify user ID: %s", err)
+	}
+
+	if parseResp == nil ||
+		!parseResp.Verified ||
+		parseResp.SelectorType == "" ||
+		parseResp.SelectorValue == "" {
+		return nil, fmt.Errorf("failed to parse and verify user ID")
+	}
+
+	resp := &logical.Response{
+		Auth: &logical.Auth{
+			LeaseOptions: logical.LeaseOptions{
+				Renewable: true,
+			},
+		},
+	}
+
+	switch parseResp.SelectorType {
+	case selectorTypeApp:
+		app, err := appEntry(req.Storage, parseResp.SelectorValue)
+		if err != nil {
+			return nil, err
+		}
+		if app == nil {
+			return nil, fmt.Errorf("app referred by the user ID does not exist")
+		}
+		resp.Auth.Policies = app.Policies
+		resp.Auth.LeaseOptions.TTL = app.TTL
+	case selectorTypeGroup:
+		group, err := groupEntry(req.Storage, parseResp.SelectorValue)
+		if err != nil {
+			return nil, err
+		}
+		if group == nil {
+			return nil, fmt.Errorf("group referred by the user ID does not exist")
+		}
+		resp.Auth.Policies = group.AdditionalPolicies
+		resp.Auth.LeaseOptions.TTL = group.TTL
+	case selectorTypeGeneric:
+	default:
+		return nil, fmt.Errorf("unknown selector type")
+	}
+
+	return resp, nil
 }
 
 const pathLoginHelpSys = `

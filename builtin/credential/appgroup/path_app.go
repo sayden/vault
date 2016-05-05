@@ -294,6 +294,7 @@ func (b *backend) pathAppCreateUpdate(req *logical.Request, data *framework.Fiel
 		app.Wrapped = time.Duration(wrappedRaw.(int)) * time.Second
 	}
 
+	// Maintain a per-app HMAC key.
 	app.HMACKey, err = uuid.GenerateUUID()
 	if err != nil || app.HMACKey == "" {
 		return nil, fmt.Errorf("failed to generate uuid HMAC key: %v", err)
@@ -679,14 +680,14 @@ func (b *backend) handleAppCredsCommon(req *logical.Request, data *framework.Fie
 	}
 
 	userIDEntry := &userIDStorageEntry{
-		Type:     AppUserIDType,
-		AppNames: []string{appName},
-		Policies: app.Policies,
-		NumUses:  app.NumUses,
-		Wrapped:  app.Wrapped,
+		SelectorType: selectorTypeApp,
+		AppNames:     []string{appName},
+		Policies:     app.Policies,
+		NumUses:      app.NumUses,
+		Wrapped:      app.Wrapped,
 	}
 
-	if err = b.setAppUserIDEntry(req.Storage, userID, userIDEntry); err != nil {
+	if err = b.setUserIDEntry(req.Storage, selectorTypeApp, userID, userIDEntry); err != nil {
 		return nil, fmt.Errorf("failed to store user ID: %s", err)
 	}
 

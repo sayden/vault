@@ -2,11 +2,11 @@ package appgroup
 
 import (
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
 	"github.com/fatih/structs"
+	"github.com/hashicorp/go-uuid"
 	"github.com/hashicorp/vault/helper/policyutil"
 	"github.com/hashicorp/vault/logical"
 	"github.com/hashicorp/vault/logical/framework"
@@ -210,6 +210,11 @@ will be the duration after which the returned token expires.
 					Type:        framework.TypeString,
 					Description: "Name of the Group.",
 				},
+				"user_id": &framework.FieldSchema{
+					Type:        framework.TypeString,
+					Default:     "",
+					Description: "NOT USER SUPPLIED",
+				},
 			},
 			Callbacks: map[logical.Operation]framework.OperationFunc{
 				logical.ReadOperation: b.pathGroupCredsRead,
@@ -324,6 +329,12 @@ func (b *backend) pathGroupCreateUpdate(req *logical.Request, data *framework.Fi
 	// Update only if value is supplied. Defaults to zero.
 	if wrappedRaw, ok := data.GetOk("wrapped"); ok {
 		group.Wrapped = time.Duration(wrappedRaw.(int)) * time.Second
+	}
+
+	// Maintain a per-app HMAC key.
+	group.HMACKey, err = uuid.GenerateUUID()
+	if err != nil || group.HMACKey == "" {
+		return nil, fmt.Errorf("failed to generate uuid HMAC key: %v", err)
 	}
 
 	// Store the entry.
@@ -729,13 +740,81 @@ func (b *backend) pathGroupWrappedDelete(req *logical.Request, data *framework.F
 }
 
 func (b *backend) pathGroupCredsRead(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	log.Printf("pathGroupCredsRead entered\n")
-	return nil, nil
+	userID, err := uuid.GenerateUUID()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate UserID:%s", err)
+	}
+	data.Raw["user_id"] = userID
+	return b.handleGroupCredsCommon(req, data)
 }
 
 func (b *backend) pathGroupCredsSpecificUpdate(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	log.Printf("pathGroupCredsSpecificUpdate entered\n")
-	return nil, nil
+	return b.handleAppCredsCommon(req, data)
+}
+
+func (b *backend) handleGroupCredsCommon(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+	groupName := data.Get("group_name").(string)
+	if groupName == "" {
+		return logical.ErrorResponse("missing group_name"), nil
+	}
+
+	userIDRaw := data.Get("user_id").(string)
+	if userIDRaw == "" {
+		return logical.ErrorResponse("missing user_id"), nil
+	}
+
+	group, err := groupEntry(req.Storage, strings.ToLower(groupName))
+	if err != nil {
+		return nil, err
+	}
+	if group == nil {
+		return logical.ErrorResponse(fmt.Sprintf("Group %s does not exist", groupName)), nil
+	}
+
+	userID, err := prepareGroupUserID(groupName, group, userIDRaw)
+	if err != nil {
+		return nil, err
+	}
+
+	// TODO: check if all the apps in the group are still existing.
+	// TODO: prepare a combined set of policies from all the apps.
+	// TODO: append additional policies to it.
+	userIDEntry := &userIDStorageEntry{
+		SelectorType: selectorTypeGroup,
+		AppNames:     group.Apps,
+		// TODO: replace these policies with the combined set of policies.
+		Policies: group.AdditionalPolicies,
+		NumUses:  group.NumUses,
+		Wrapped:  group.Wrapped,
+	}
+
+	if err = b.setUserIDEntry(req.Storage, selectorTypeGroup, userID, userIDEntry); err != nil {
+		return nil, fmt.Errorf("failed to store user ID: %s", err)
+	}
+
+	return &logical.Response{
+		Data: map[string]interface{}{
+			"user_id": userID,
+		},
+	}, nil
+}
+
+func prepareGroupUserID(groupName string, group *groupStorageEntry, userID string) (string, error) {
+	if userID == "" {
+		return "", fmt.Errorf("missing userID")
+	}
+	if groupName == "" {
+		return "", fmt.Errorf("missing groupName")
+	}
+	if group == nil {
+		return "", fmt.Errorf("nil group")
+	}
+
+	// Attach the selector to the user ID.
+	userID = fmt.Sprintf("group=%s:%s", groupName, userID)
+
+	// Attach HMAC to the user ID.
+	return appendHMAC(userID, group.HMACKey)
 }
 
 var groupHelp = map[string][2]string{
