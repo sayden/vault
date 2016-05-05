@@ -19,6 +19,7 @@ type groupStorageEntry struct {
 	TTL                time.Duration `json:"ttl" structs:"ttl" mapstructure:"ttl"`
 	MaxTTL             time.Duration `json:"max_ttl" structs:"max_ttl" mapstructure:"max_ttl"`
 	Wrapped            time.Duration `json:"wrapped" structs:"wrapped" mapstructure:"wrapped"`
+	HMACKey            string        `json:"hmac_key" structs:"hmac_key" mapstructure:"hmac_key"`
 }
 
 func groupPaths(b *backend) []*framework.Path {

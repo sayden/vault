@@ -31,7 +31,11 @@ func (b *backend) pathLoginRenew(req *logical.Request, data *framework.FieldData
 }
 
 func (b *backend) pathLoginUpdate(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	log.Printf("pathLoginUpdate entered\n")
+	userID := data.Get("user_id").(string)
+	if userID == "" {
+		return logical.ErrorResponse("user_id"), nil
+	}
+	b.validateUserID(req.Storage, userID)
 	return nil, nil
 }
 

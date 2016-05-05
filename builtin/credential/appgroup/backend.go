@@ -37,9 +37,6 @@ func Backend(conf *logical.BackendConfig) (*framework.Backend, error) {
 				"login",
 			},
 		},
-		Secrets: []*framework.Secret{
-			secretUserID(b),
-		},
 		Paths: framework.PathAppend(
 			appPaths(b),
 			groupPaths(b),
