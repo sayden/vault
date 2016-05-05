@@ -132,7 +132,9 @@ will be the duration after which the returned token expires.
 	}
 }
 
-func setGenericEntry(s logical.Storage, genericName string, generic *genericStorageEntry) error {
+func (b *backend) setGenericEntry(s logical.Storage, genericName string, generic *genericStorageEntry) error {
+	b.genericLock.Lock()
+	defer b.genericLock.Unlock()
 	if entry, err := logical.StorageEntryJSON("generic/"+strings.ToLower(genericName), generic); err != nil {
 		return err
 	} else {
@@ -140,12 +142,15 @@ func setGenericEntry(s logical.Storage, genericName string, generic *genericStor
 	}
 }
 
-func genericEntry(s logical.Storage, genericName string) (*genericStorageEntry, error) {
+func (b *backend) genericEntry(s logical.Storage, genericName string) (*genericStorageEntry, error) {
 	if genericName == "" {
 		return nil, fmt.Errorf("missing generic_name")
 	}
 
 	var result genericStorageEntry
+
+	b.genericLock.RLock()
+	defer b.genericLock.RUnlock()
 
 	if entry, err := s.Get("generic/" + strings.ToLower(genericName)); err != nil {
 		return nil, err
@@ -203,7 +208,7 @@ func (b *backend) handleGenericCredsCommon(req *logical.Request, data *framework
 	}
 
 	// Store the entry.
-	if err := setGenericEntry(req.Storage, genericName, generic); err != nil {
+	if err := b.setGenericEntry(req.Storage, genericName, generic); err != nil {
 		return nil, err
 	}
 

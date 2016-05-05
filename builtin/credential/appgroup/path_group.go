@@ -244,7 +244,10 @@ will be the duration after which the returned token expires.
 	}
 }
 
-func setGroupEntry(s logical.Storage, groupName string, group *groupStorageEntry) error {
+func (b *backend) setGroupEntry(s logical.Storage, groupName string, group *groupStorageEntry) error {
+	b.groupLock.Lock()
+	defer b.groupLock.Unlock()
+
 	if entry, err := logical.StorageEntryJSON("group/"+strings.ToLower(groupName), group); err != nil {
 		return err
 	} else {
@@ -252,12 +255,15 @@ func setGroupEntry(s logical.Storage, groupName string, group *groupStorageEntry
 	}
 }
 
-func groupEntry(s logical.Storage, groupName string) (*groupStorageEntry, error) {
+func (b *backend) groupEntry(s logical.Storage, groupName string) (*groupStorageEntry, error) {
 	if groupName == "" {
 		return nil, fmt.Errorf("missing group_name")
 	}
 
 	var result groupStorageEntry
+
+	b.groupLock.RLock()
+	defer b.groupLock.RUnlock()
 
 	if entry, err := s.Get("group/" + strings.ToLower(groupName)); err != nil {
 		return nil, err
@@ -278,7 +284,7 @@ func (b *backend) pathGroupCreateUpdate(req *logical.Request, data *framework.Fi
 
 	// Check if there is already an entry. If entry exists, this is an
 	// UpdateOperation.
-	group, err := groupEntry(req.Storage, groupName)
+	group, err := b.groupEntry(req.Storage, groupName)
 	if err != nil {
 		return nil, err
 	}
@@ -338,7 +344,7 @@ func (b *backend) pathGroupCreateUpdate(req *logical.Request, data *framework.Fi
 	}
 
 	// Store the entry.
-	return nil, setGroupEntry(req.Storage, groupName, group)
+	return nil, b.setGroupEntry(req.Storage, groupName, group)
 }
 
 func (b *backend) pathGroupRead(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
@@ -347,7 +353,7 @@ func (b *backend) pathGroupRead(req *logical.Request, data *framework.FieldData)
 		return logical.ErrorResponse("missing group_name"), nil
 	}
 
-	if group, err := groupEntry(req.Storage, strings.ToLower(groupName)); err != nil {
+	if group, err := b.groupEntry(req.Storage, strings.ToLower(groupName)); err != nil {
 		return nil, err
 	} else if group == nil {
 		return nil, nil
@@ -378,7 +384,7 @@ func (b *backend) pathGroupAppsUpdate(req *logical.Request, data *framework.Fiel
 		return logical.ErrorResponse("missing group_name"), nil
 	}
 
-	group, err := groupEntry(req.Storage, strings.ToLower(groupName))
+	group, err := b.groupEntry(req.Storage, strings.ToLower(groupName))
 	if err != nil {
 		return nil, err
 	}
@@ -388,7 +394,7 @@ func (b *backend) pathGroupAppsUpdate(req *logical.Request, data *framework.Fiel
 
 	if appsRaw, ok := data.GetOk("apps"); ok {
 		group.Apps = strings.Split(appsRaw.(string), ",")
-		return nil, setGroupEntry(req.Storage, groupName, group)
+		return nil, b.setGroupEntry(req.Storage, groupName, group)
 	} else {
 		return logical.ErrorResponse("missing apps"), nil
 	}
@@ -400,7 +406,7 @@ func (b *backend) pathGroupAppsRead(req *logical.Request, data *framework.FieldD
 		return logical.ErrorResponse("missing group_name"), nil
 	}
 
-	if group, err := groupEntry(req.Storage, strings.ToLower(groupName)); err != nil {
+	if group, err := b.groupEntry(req.Storage, strings.ToLower(groupName)); err != nil {
 		return nil, err
 	} else if group == nil {
 		return nil, nil
@@ -419,7 +425,7 @@ func (b *backend) pathGroupAppsDelete(req *logical.Request, data *framework.Fiel
 		return logical.ErrorResponse("missing group_name"), nil
 	}
 
-	group, err := groupEntry(req.Storage, strings.ToLower(groupName))
+	group, err := b.groupEntry(req.Storage, strings.ToLower(groupName))
 	if err != nil {
 		return nil, err
 	}
@@ -429,7 +435,7 @@ func (b *backend) pathGroupAppsDelete(req *logical.Request, data *framework.Fiel
 
 	group.Apps = (&groupStorageEntry{}).Apps
 
-	return nil, setGroupEntry(req.Storage, groupName, group)
+	return nil, b.setGroupEntry(req.Storage, groupName, group)
 }
 
 func (b *backend) pathGroupAdditionalPoliciesUpdate(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
@@ -438,7 +444,7 @@ func (b *backend) pathGroupAdditionalPoliciesUpdate(req *logical.Request, data *
 		return logical.ErrorResponse("missing group_name"), nil
 	}
 
-	group, err := groupEntry(req.Storage, strings.ToLower(groupName))
+	group, err := b.groupEntry(req.Storage, strings.ToLower(groupName))
 	if err != nil {
 		return nil, err
 	}
@@ -448,7 +454,7 @@ func (b *backend) pathGroupAdditionalPoliciesUpdate(req *logical.Request, data *
 
 	if additionalPoliciesRaw, ok := data.GetOk("additional_policies"); ok {
 		group.AdditionalPolicies = policyutil.ParsePolicies(additionalPoliciesRaw.(string))
-		return nil, setGroupEntry(req.Storage, groupName, group)
+		return nil, b.setGroupEntry(req.Storage, groupName, group)
 	} else {
 		return logical.ErrorResponse("missing additional_policies"), nil
 	}
@@ -460,7 +466,7 @@ func (b *backend) pathGroupAdditionalPoliciesRead(req *logical.Request, data *fr
 		return logical.ErrorResponse("missing group_name"), nil
 	}
 
-	if group, err := groupEntry(req.Storage, strings.ToLower(groupName)); err != nil {
+	if group, err := b.groupEntry(req.Storage, strings.ToLower(groupName)); err != nil {
 		return nil, err
 	} else if group == nil {
 		return nil, nil
@@ -479,7 +485,7 @@ func (b *backend) pathGroupAdditionalPoliciesDelete(req *logical.Request, data *
 		return logical.ErrorResponse("missing group_name"), nil
 	}
 
-	group, err := groupEntry(req.Storage, strings.ToLower(groupName))
+	group, err := b.groupEntry(req.Storage, strings.ToLower(groupName))
 	if err != nil {
 		return nil, err
 	}
@@ -489,7 +495,7 @@ func (b *backend) pathGroupAdditionalPoliciesDelete(req *logical.Request, data *
 
 	group.AdditionalPolicies = (&groupStorageEntry{}).AdditionalPolicies
 
-	return nil, setGroupEntry(req.Storage, groupName, group)
+	return nil, b.setGroupEntry(req.Storage, groupName, group)
 }
 
 func (b *backend) pathGroupNumUsesUpdate(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
@@ -498,7 +504,7 @@ func (b *backend) pathGroupNumUsesUpdate(req *logical.Request, data *framework.F
 		return logical.ErrorResponse("missing group_name"), nil
 	}
 
-	group, err := groupEntry(req.Storage, strings.ToLower(groupName))
+	group, err := b.groupEntry(req.Storage, strings.ToLower(groupName))
 	if err != nil {
 		return nil, err
 	}
@@ -508,7 +514,7 @@ func (b *backend) pathGroupNumUsesUpdate(req *logical.Request, data *framework.F
 
 	if numUsesRaw, ok := data.GetOk("num_uses"); ok {
 		group.NumUses = numUsesRaw.(int)
-		return nil, setGroupEntry(req.Storage, groupName, group)
+		return nil, b.setGroupEntry(req.Storage, groupName, group)
 	} else {
 		return logical.ErrorResponse("missing num_uses"), nil
 	}
@@ -520,7 +526,7 @@ func (b *backend) pathGroupNumUsesRead(req *logical.Request, data *framework.Fie
 		return logical.ErrorResponse("missing group_name"), nil
 	}
 
-	if group, err := groupEntry(req.Storage, strings.ToLower(groupName)); err != nil {
+	if group, err := b.groupEntry(req.Storage, strings.ToLower(groupName)); err != nil {
 		return nil, err
 	} else if group == nil {
 		return nil, nil
@@ -539,7 +545,7 @@ func (b *backend) pathGroupNumUsesDelete(req *logical.Request, data *framework.F
 		return logical.ErrorResponse("missing group_name"), nil
 	}
 
-	group, err := groupEntry(req.Storage, strings.ToLower(groupName))
+	group, err := b.groupEntry(req.Storage, strings.ToLower(groupName))
 	if err != nil {
 		return nil, err
 	}
@@ -549,7 +555,7 @@ func (b *backend) pathGroupNumUsesDelete(req *logical.Request, data *framework.F
 
 	group.NumUses = (&groupStorageEntry{}).NumUses
 
-	return nil, setGroupEntry(req.Storage, groupName, group)
+	return nil, b.setGroupEntry(req.Storage, groupName, group)
 }
 
 func (b *backend) pathGroupTTLUpdate(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
@@ -558,7 +564,7 @@ func (b *backend) pathGroupTTLUpdate(req *logical.Request, data *framework.Field
 		return logical.ErrorResponse("missing group_name"), nil
 	}
 
-	group, err := groupEntry(req.Storage, strings.ToLower(groupName))
+	group, err := b.groupEntry(req.Storage, strings.ToLower(groupName))
 	if err != nil {
 		return nil, err
 	}
@@ -570,7 +576,7 @@ func (b *backend) pathGroupTTLUpdate(req *logical.Request, data *framework.Field
 		if group.TTL = time.Duration(ttlRaw.(int)) * time.Second; group.TTL > group.MaxTTL {
 			return logical.ErrorResponse("ttl should not be greater than max_ttl"), nil
 		}
-		return nil, setGroupEntry(req.Storage, groupName, group)
+		return nil, b.setGroupEntry(req.Storage, groupName, group)
 	} else {
 		return logical.ErrorResponse("missing ttl"), nil
 	}
@@ -582,7 +588,7 @@ func (b *backend) pathGroupTTLRead(req *logical.Request, data *framework.FieldDa
 		return logical.ErrorResponse("missing group_name"), nil
 	}
 
-	if group, err := groupEntry(req.Storage, strings.ToLower(groupName)); err != nil {
+	if group, err := b.groupEntry(req.Storage, strings.ToLower(groupName)); err != nil {
 		return nil, err
 	} else if group == nil {
 		return nil, nil
@@ -602,7 +608,7 @@ func (b *backend) pathGroupTTLDelete(req *logical.Request, data *framework.Field
 		return logical.ErrorResponse("missing group_name"), nil
 	}
 
-	group, err := groupEntry(req.Storage, strings.ToLower(groupName))
+	group, err := b.groupEntry(req.Storage, strings.ToLower(groupName))
 	if err != nil {
 		return nil, err
 	}
@@ -612,7 +618,7 @@ func (b *backend) pathGroupTTLDelete(req *logical.Request, data *framework.Field
 
 	group.TTL = (&groupStorageEntry{}).TTL
 
-	return nil, setGroupEntry(req.Storage, groupName, group)
+	return nil, b.setGroupEntry(req.Storage, groupName, group)
 }
 
 func (b *backend) pathGroupMaxTTLUpdate(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
@@ -621,7 +627,7 @@ func (b *backend) pathGroupMaxTTLUpdate(req *logical.Request, data *framework.Fi
 		return logical.ErrorResponse("missing group_name"), nil
 	}
 
-	group, err := groupEntry(req.Storage, strings.ToLower(groupName))
+	group, err := b.groupEntry(req.Storage, strings.ToLower(groupName))
 	if err != nil {
 		return nil, err
 	}
@@ -633,7 +639,7 @@ func (b *backend) pathGroupMaxTTLUpdate(req *logical.Request, data *framework.Fi
 		if group.MaxTTL = time.Duration(maxTTLRaw.(int)) * time.Second; group.TTL > group.MaxTTL {
 			return logical.ErrorResponse("max_ttl should be greater than ttl"), nil
 		}
-		return nil, setGroupEntry(req.Storage, groupName, group)
+		return nil, b.setGroupEntry(req.Storage, groupName, group)
 	} else {
 		return logical.ErrorResponse("missing max_ttl"), nil
 	}
@@ -645,7 +651,7 @@ func (b *backend) pathGroupMaxTTLRead(req *logical.Request, data *framework.Fiel
 		return logical.ErrorResponse("missing group_name"), nil
 	}
 
-	if group, err := groupEntry(req.Storage, strings.ToLower(groupName)); err != nil {
+	if group, err := b.groupEntry(req.Storage, strings.ToLower(groupName)); err != nil {
 		return nil, err
 	} else if group == nil {
 		return nil, nil
@@ -665,7 +671,7 @@ func (b *backend) pathGroupMaxTTLDelete(req *logical.Request, data *framework.Fi
 		return logical.ErrorResponse("missing group_name"), nil
 	}
 
-	group, err := groupEntry(req.Storage, strings.ToLower(groupName))
+	group, err := b.groupEntry(req.Storage, strings.ToLower(groupName))
 	if err != nil {
 		return nil, err
 	}
@@ -675,7 +681,7 @@ func (b *backend) pathGroupMaxTTLDelete(req *logical.Request, data *framework.Fi
 
 	group.MaxTTL = (&groupStorageEntry{}).MaxTTL
 
-	return nil, setGroupEntry(req.Storage, groupName, group)
+	return nil, b.setGroupEntry(req.Storage, groupName, group)
 }
 
 func (b *backend) pathGroupWrappedUpdate(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
@@ -684,7 +690,7 @@ func (b *backend) pathGroupWrappedUpdate(req *logical.Request, data *framework.F
 		return logical.ErrorResponse("missing group_name"), nil
 	}
 
-	group, err := groupEntry(req.Storage, strings.ToLower(groupName))
+	group, err := b.groupEntry(req.Storage, strings.ToLower(groupName))
 	if err != nil {
 		return nil, err
 	}
@@ -694,7 +700,7 @@ func (b *backend) pathGroupWrappedUpdate(req *logical.Request, data *framework.F
 
 	if wrappedRaw, ok := data.GetOk("wrapped"); ok {
 		group.Wrapped = time.Duration(wrappedRaw.(int)) * time.Second
-		return nil, setGroupEntry(req.Storage, groupName, group)
+		return nil, b.setGroupEntry(req.Storage, groupName, group)
 	} else {
 		return logical.ErrorResponse("missing wrapped"), nil
 	}
@@ -706,7 +712,7 @@ func (b *backend) pathGroupWrappedRead(req *logical.Request, data *framework.Fie
 		return logical.ErrorResponse("missing group_name"), nil
 	}
 
-	if group, err := groupEntry(req.Storage, strings.ToLower(groupName)); err != nil {
+	if group, err := b.groupEntry(req.Storage, strings.ToLower(groupName)); err != nil {
 		return nil, err
 	} else if group == nil {
 		return nil, nil
@@ -726,7 +732,7 @@ func (b *backend) pathGroupWrappedDelete(req *logical.Request, data *framework.F
 		return logical.ErrorResponse("missing group_name"), nil
 	}
 
-	group, err := groupEntry(req.Storage, strings.ToLower(groupName))
+	group, err := b.groupEntry(req.Storage, strings.ToLower(groupName))
 	if err != nil {
 		return nil, err
 	}
@@ -736,7 +742,7 @@ func (b *backend) pathGroupWrappedDelete(req *logical.Request, data *framework.F
 
 	group.Wrapped = (&groupStorageEntry{}).Wrapped
 
-	return nil, setGroupEntry(req.Storage, groupName, group)
+	return nil, b.setGroupEntry(req.Storage, groupName, group)
 }
 
 func (b *backend) pathGroupCredsRead(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
@@ -763,7 +769,7 @@ func (b *backend) handleGroupCredsCommon(req *logical.Request, data *framework.F
 		return logical.ErrorResponse("missing user_id"), nil
 	}
 
-	group, err := groupEntry(req.Storage, strings.ToLower(groupName))
+	group, err := b.groupEntry(req.Storage, strings.ToLower(groupName))
 	if err != nil {
 		return nil, err
 	}

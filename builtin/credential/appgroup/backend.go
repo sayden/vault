@@ -1,6 +1,8 @@
 package appgroup
 
 import (
+	"sync"
+
 	"github.com/hashicorp/vault/helper/salt"
 	"github.com/hashicorp/vault/logical"
 	"github.com/hashicorp/vault/logical/framework"
@@ -25,7 +27,10 @@ func Backend(conf *logical.BackendConfig) (*framework.Backend, error) {
 
 	// Create a backend object
 	b := &backend{
-		salt: salt,
+		salt:        salt,
+		appLock:     &sync.RWMutex{},
+		groupLock:   &sync.RWMutex{},
+		genericLock: &sync.RWMutex{},
 	}
 
 	// Attach the paths and secrets that are to be handled by the backend
@@ -51,7 +56,11 @@ func Backend(conf *logical.BackendConfig) (*framework.Backend, error) {
 
 type backend struct {
 	*framework.Backend
-	salt *salt.Salt
+	salt        *salt.Salt
+	appLock     *sync.RWMutex
+	groupLock   *sync.RWMutex
+	genericLock *sync.RWMutex
+	userIDLocks map[string]*sync.RWMutex
 }
 
 const backendHelp = `

@@ -81,7 +81,7 @@ func (b *backend) validateUserID(s logical.Storage, userID string) (*validateUse
 	var wrapped time.Duration
 	switch parseResp.SelectorType {
 	case selectorTypeApp:
-		app, err := appEntry(s, parseResp.SelectorValue)
+		app, err := b.appEntry(s, parseResp.SelectorValue)
 		if err != nil {
 			return nil, err
 		}
@@ -93,14 +93,14 @@ func (b *backend) validateUserID(s logical.Storage, userID string) (*validateUse
 		maxTTL = app.MaxTTL
 		wrapped = app.Wrapped
 	case selectorTypeGroup:
-		group, err := groupEntry(s, parseResp.SelectorValue)
+		group, err := b.groupEntry(s, parseResp.SelectorValue)
 		if err != nil {
 			return nil, err
 		}
 		if group == nil {
 			return nil, fmt.Errorf("group referred by the user ID does not exist")
 		}
-		groupPolicies, err := fetchPolicies(s, group.Apps)
+		groupPolicies, err := b.fetchPolicies(s, group.Apps)
 		if err != nil {
 			return nil, err
 		}
@@ -110,7 +110,7 @@ func (b *backend) validateUserID(s logical.Storage, userID string) (*validateUse
 		maxTTL = group.MaxTTL
 		wrapped = group.Wrapped
 	case selectorTypeGeneric:
-		generic, err := genericEntry(s, parseResp.SelectorValue)
+		generic, err := b.genericEntry(s, parseResp.SelectorValue)
 		if err != nil {
 			return nil, err
 		}
@@ -118,11 +118,11 @@ func (b *backend) validateUserID(s logical.Storage, userID string) (*validateUse
 			return nil, fmt.Errorf("generic credential referred by the user ID does not exist")
 		}
 		for _, groupName := range generic.Groups {
-			group, err := groupEntry(s, groupName)
+			group, err := b.groupEntry(s, groupName)
 			if err != nil {
 				return nil, err
 			}
-			groupPolicies, err := fetchPolicies(s, group.Apps)
+			groupPolicies, err := b.fetchPolicies(s, group.Apps)
 			if err != nil {
 				return nil, err
 			}
@@ -131,7 +131,7 @@ func (b *backend) validateUserID(s logical.Storage, userID string) (*validateUse
 		}
 
 		for _, appName := range generic.Apps {
-			app, err := appEntry(s, appName)
+			app, err := b.appEntry(s, appName)
 			if err != nil {
 				return nil, err
 			}
@@ -195,7 +195,7 @@ func (b *backend) parseAndVerifyUserID(s logical.Storage, userID string) (*parse
 	hmacKey := ""
 	switch selectorType {
 	case selectorTypeApp:
-		app, err := appEntry(s, selectorValue)
+		app, err := b.appEntry(s, selectorValue)
 		if err != nil {
 			return nil, err
 		}
@@ -204,7 +204,7 @@ func (b *backend) parseAndVerifyUserID(s logical.Storage, userID string) (*parse
 		}
 		hmacKey = app.HMACKey
 	case selectorTypeGroup:
-		group, err := groupEntry(s, selectorValue)
+		group, err := b.groupEntry(s, selectorValue)
 		if err != nil {
 			return nil, err
 		}
@@ -213,7 +213,7 @@ func (b *backend) parseAndVerifyUserID(s logical.Storage, userID string) (*parse
 		}
 		hmacKey = group.HMACKey
 	case selectorTypeGeneric:
-		generic, err := genericEntry(s, selectorValue)
+		generic, err := b.genericEntry(s, selectorValue)
 		if err != nil {
 			return nil, err
 		}
@@ -315,10 +315,10 @@ func createHMACBase64(key, value string) (string, error) {
 }
 
 // Iterates through all the apps and fetches the policies of each.
-func fetchPolicies(s logical.Storage, apps []string) ([]string, error) {
+func (b *backend) fetchPolicies(s logical.Storage, apps []string) ([]string, error) {
 	var policies []string
 	for _, appName := range apps {
-		app, err := appEntry(s, appName)
+		app, err := b.appEntry(s, appName)
 		if err != nil {
 			return nil, err
 		}
