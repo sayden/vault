@@ -191,6 +191,10 @@ func (b *backend) handleGenericCredsCommon(req *logical.Request, data *framework
 		return logical.ErrorResponse("missing groups and/or apps"), nil
 	}
 
+	if generic.NumUses < 0 {
+		return logical.ErrorResponse("num_uses cannot be negative"), nil
+	}
+
 	// Check that TTL value provided is less than MaxTTL.
 	if generic.TTL > generic.MaxTTL {
 		return logical.ErrorResponse("ttl should not be greater than max_ttl"), nil
@@ -226,7 +230,7 @@ func (b *backend) handleGenericCredsCommon(req *logical.Request, data *framework
 		NumUses: generic.NumUses,
 	}
 
-	if err = b.setUserIDEntry(req.Storage, selectorTypeGeneric, userID, userIDEntry); err != nil {
+	if err = b.registerUserIDEntry(req.Storage, selectorTypeGeneric, genericName, userID, userIDEntry); err != nil {
 		return nil, fmt.Errorf("failed to store user ID: %s", err)
 	}
 

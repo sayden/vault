@@ -31,6 +31,7 @@ func Backend(conf *logical.BackendConfig) (*framework.Backend, error) {
 		appLock:     &sync.RWMutex{},
 		groupLock:   &sync.RWMutex{},
 		genericLock: &sync.RWMutex{},
+		userIDLocks: map[string]*sync.RWMutex{},
 	}
 
 	// Attach the paths and secrets that are to be handled by the backend
@@ -60,6 +61,13 @@ type backend struct {
 	appLock     *sync.RWMutex
 	groupLock   *sync.RWMutex
 	genericLock *sync.RWMutex
+
+	// The index into the userIDLocks are the userIDs themselves. Being
+	// composed by UUID and SHA256 hash value within, userIDs serve as
+	// unique indexes into this map of locks.
+	//
+	// A lock on the map itself can become a huge bottleneck without providing
+	// tangible advantage/safety.
 	userIDLocks map[string]*sync.RWMutex
 }
 

@@ -7,9 +7,9 @@ import (
 	"encoding/base64"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
-	"github.com/hashicorp/vault/helper/policyutil"
 	"github.com/hashicorp/vault/helper/strutil"
 	"github.com/hashicorp/vault/logical"
 )
@@ -32,13 +32,16 @@ type parseUserIDResponse struct {
 	SelectorValue string `json:"selector_value" structs:"selector_value" mapstructure:"selector_value"`
 }
 
-type validateUserIDResponse struct {
-	TTL      time.Duration `json:"ttl" structs:"ttl" mapstructure:"ttl"`
-	Wrapped  time.Duration `json:"wrapped" structs:"wrapped" mapstructure:"wrapped"`
-	Policies []string      `json:"policies" structs:"policies" mapstructure:"policies"`
+type validateSelectorResponse struct {
+	SelectorType  string        `json:"selector_type" structs:"selector_type" mapstructure:"selector_type"`
+	SelectorValue string        `json:"selector_value" structs:"selector_value" mapstructure:"selector_value"`
+	TTL           time.Duration `json:"ttl" structs:"ttl" mapstructure:"ttl"`
+	MaxTTL        time.Duration `json:"max_ttl" structs:"max_ttl" mapstructure:"max_ttl"`
+	Wrapped       time.Duration `json:"wrapped" structs:"wrapped" mapstructure:"wrapped"`
+	Policies      []string      `json:"policies" structs:"policies" mapstructure:"policies"`
 }
 
-func (b *backend) validateUserID(s logical.Storage, userID string) (*validateUserIDResponse, error) {
+func (b *backend) validateUserID(s logical.Storage, userID string) (*validateSelectorResponse, error) {
 	// First ensure that the UserID presented is not tampered with.
 	// After authentication, get the selector type and value.
 	parseResp, err := b.parseAndVerifyUserID(s, userID)
@@ -64,36 +67,45 @@ func (b *backend) validateUserID(s logical.Storage, userID string) (*validateUse
 	// UserID after HMAC is attached to it. So, a direct lookup of the
 	// presented UserID (and not the plaintext part of it), based on
 	// the selector, should return the entry.
-	idEntry, err := b.userIDEntry(s, parseResp.SelectorType, userID)
+	valid, err := b.userIDEntryValid(s, parseResp.SelectorType, parseResp.SelectorValue, userID)
 	if err != nil {
 		return nil, err
 	}
-	if idEntry == nil {
-		return nil, fmt.Errorf("user ID not found")
+	if !valid {
+		return nil, fmt.Errorf("invalid user ID")
 	}
 
-	// Based on the selector type, prepare the (effective) policies.
+	// Return the effective configuration values based on the current snapshot of the configuration.
+	return b.validateSelector(s, parseResp.SelectorType, parseResp.SelectorValue)
+}
+
+func (b *backend) validateSelector(s logical.Storage, selectorType, selectorValue string) (*validateSelectorResponse, error) {
+	resp := &validateSelectorResponse{
+		SelectorType:  selectorType,
+		SelectorValue: selectorValue,
+	}
+	// Based on the selector type, prepare the "effective" policies.
 	// This is credential issue time, so validate the TTL and MaxTTL
 	// boundaries too.
-	var policies []string
-	var ttl time.Duration
-	var maxTTL time.Duration
-	var wrapped time.Duration
-	switch parseResp.SelectorType {
+	//var policies []string
+	//var ttl time.Duration
+	//var maxTTL time.Duration
+	//var wrapped time.Duration
+	switch selectorType {
 	case selectorTypeApp:
-		app, err := b.appEntry(s, parseResp.SelectorValue)
+		app, err := b.appEntry(s, selectorValue)
 		if err != nil {
 			return nil, err
 		}
 		if app == nil {
 			return nil, fmt.Errorf("app referred by the user ID does not exist")
 		}
-		policies = app.Policies
-		ttl = app.TTL
-		maxTTL = app.MaxTTL
-		wrapped = app.Wrapped
+		resp.Policies = app.Policies
+		resp.TTL = app.TTL
+		resp.MaxTTL = app.MaxTTL
+		resp.Wrapped = app.Wrapped
 	case selectorTypeGroup:
-		group, err := b.groupEntry(s, parseResp.SelectorValue)
+		group, err := b.groupEntry(s, selectorValue)
 		if err != nil {
 			return nil, err
 		}
@@ -104,13 +116,13 @@ func (b *backend) validateUserID(s logical.Storage, userID string) (*validateUse
 		if err != nil {
 			return nil, err
 		}
-		policies = append(policies, groupPolicies...)
-		policies = append(policies, group.AdditionalPolicies...)
-		ttl = group.TTL
-		maxTTL = group.MaxTTL
-		wrapped = group.Wrapped
+		resp.Policies = append(resp.Policies, groupPolicies...)
+		resp.Policies = append(resp.Policies, group.AdditionalPolicies...)
+		resp.TTL = group.TTL
+		resp.MaxTTL = group.MaxTTL
+		resp.Wrapped = group.Wrapped
 	case selectorTypeGeneric:
-		generic, err := b.genericEntry(s, parseResp.SelectorValue)
+		generic, err := b.genericEntry(s, selectorValue)
 		if err != nil {
 			return nil, err
 		}
@@ -126,8 +138,8 @@ func (b *backend) validateUserID(s logical.Storage, userID string) (*validateUse
 			if err != nil {
 				return nil, err
 			}
-			policies = append(policies, groupPolicies...)
-			policies = append(policies, group.AdditionalPolicies...)
+			resp.Policies = append(resp.Policies, groupPolicies...)
+			resp.Policies = append(resp.Policies, group.AdditionalPolicies...)
 		}
 
 		for _, appName := range generic.Apps {
@@ -135,18 +147,19 @@ func (b *backend) validateUserID(s logical.Storage, userID string) (*validateUse
 			if err != nil {
 				return nil, err
 			}
-			policies = append(policies, app.Policies...)
+			resp.Policies = append(resp.Policies, app.Policies...)
 		}
-		policies = append(policies, generic.AdditionalPolicies...)
-		ttl = generic.TTL
-		maxTTL = generic.MaxTTL
-		wrapped = generic.Wrapped
+		resp.Policies = append(resp.Policies, generic.AdditionalPolicies...)
+		resp.TTL = generic.TTL
+		resp.MaxTTL = generic.MaxTTL
+		resp.Wrapped = generic.Wrapped
 	default:
 		return nil, fmt.Errorf("unknown selector type")
 	}
 
 	// Cap the ttl and max_ttl values.
-	ttl, maxTTL, err = b.SanitizeTTL(ttl, maxTTL)
+	var err error
+	resp.TTL, resp.MaxTTL, err = b.SanitizeTTL(resp.TTL, resp.MaxTTL)
 	if err != nil {
 		return nil, err
 	}
@@ -154,15 +167,11 @@ func (b *backend) validateUserID(s logical.Storage, userID string) (*validateUse
 	// Although wrapped is unrelated to the ttl and max_ttl values,
 	// since it is issued out of the backend, it should respect the
 	// backend's boundaries.
-	if wrapped > b.System().MaxLeaseTTL() {
-		wrapped = b.System().MaxLeaseTTL()
+	if resp.Wrapped > b.System().MaxLeaseTTL() {
+		resp.Wrapped = b.System().MaxLeaseTTL()
 	}
 
-	return &validateUserIDResponse{
-		Policies: policyutil.SanitizePolicies(policies),
-		TTL:      ttl,
-		Wrapped:  wrapped,
-	}, nil
+	return resp, nil
 }
 
 func (b *backend) parseAndVerifyUserID(s logical.Storage, userID string) (*parseUserIDResponse, error) {
@@ -250,35 +259,78 @@ func (b *backend) parseAndVerifyUserID(s logical.Storage, userID string) (*parse
 	}, nil
 }
 
-func (b *backend) userIDEntry(s logical.Storage, selectorType, userID string) (*userIDStorageEntry, error) {
-
-	// TODO: Decrement the num_uses. If it reaches 0, set it to -1.
-
-	var result userIDStorageEntry
-
-	entryIndex := "userid/" + selectorType + "/" + b.salt.SaltID(strings.ToLower(userID))
-	if entry, err := s.Get(entryIndex); err != nil {
-		return nil, err
-	} else if entry == nil {
-		return nil, nil
-	} else if err := entry.DecodeJSON(&result); err != nil {
-		return nil, err
+func (b *backend) userIDEntryValid(s logical.Storage, selectorType, selectorValue, userID string) (bool, error) {
+	lock := b.userIDLocks[userID]
+	if lock == nil {
+		return false, nil
 	}
 
-	return &result, nil
+	entryIndex := fmt.Sprintf("userid/%s/%s/%s", selectorType, selectorValue, b.salt.SaltID(strings.ToLower(userID)))
+
+	lock.RLock()
+
+	result := userIDStorageEntry{}
+	if entry, err := s.Get(entryIndex); err != nil {
+		lock.RUnlock()
+		return false, err
+	} else if entry == nil {
+		lock.RUnlock()
+		return false, nil
+	} else if err := entry.DecodeJSON(&result); err != nil {
+		lock.RUnlock()
+		return false, err
+	}
+
+	if result.NumUses == 0 {
+		lock.RUnlock()
+		return true, nil
+	}
+
+	lock.RUnlock()
+	lock.Lock()
+	defer lock.Unlock()
+
+	// Lock switching might have changed the data. Refresh the contents.
+	result = userIDStorageEntry{}
+	if entry, err := s.Get(entryIndex); err != nil {
+		return false, err
+	} else if entry == nil {
+		return false, nil
+	} else if err := entry.DecodeJSON(&result); err != nil {
+		return false, err
+	}
+
+	if result.NumUses == 1 {
+		if err := s.Delete(entryIndex); err != nil {
+			return false, err
+		}
+		b.userIDLocks[userID] = nil
+	} else {
+		result.NumUses -= 1
+		if entry, err := logical.StorageEntryJSON(entryIndex, &result); err != nil {
+			return false, fmt.Errorf("failed to decrement the num_uses for user ID:%s", userID)
+		} else if err = s.Put(entry); err != nil {
+			return false, fmt.Errorf("failed to decrement the num_uses for user ID:%s", userID)
+		}
+	}
+	return true, nil
 }
 
-func (b *backend) setUserIDEntry(s logical.Storage, selectorType, userID string, userIDEntry *userIDStorageEntry) error {
+func (b *backend) registerUserIDEntry(s logical.Storage, selectorType, selectorValue, userID string, userIDEntry *userIDStorageEntry) error {
+	//key := fmt.Sprintf("%s%s", selectorType, selectorValue)
+	if b.userIDLocks[userID] != nil {
+		return fmt.Errorf("user ID is already registered")
+	}
 
-	// TODO: Start an expiration timer based on the TTL value.
-
-	entryIndex := "userid/" + selectorType + "/" + b.salt.SaltID(strings.ToLower(userID))
-	entry, err := logical.StorageEntryJSON(entryIndex, userIDEntry)
-	if err != nil {
+	entryIndex := fmt.Sprintf("userid/%s/%s/%s", selectorType, selectorValue, b.salt.SaltID(strings.ToLower(userID)))
+	if entry, err := logical.StorageEntryJSON(entryIndex, userIDEntry); err != nil {
+		return err
+	} else if err = s.Put(entry); err != nil {
 		return err
 	}
 
-	return s.Put(entry)
+	b.userIDLocks[userID] = &sync.RWMutex{}
+	return nil
 }
 
 // Takes in the plaintext value creates a HMAC of it and returns

@@ -272,6 +272,10 @@ func (b *backend) pathAppCreateUpdate(req *logical.Request, data *framework.Fiel
 		app.NumUses = numUsesRaw.(int)
 	}
 
+	if app.NumUses < 0 {
+		return logical.ErrorResponse("num_uses cannot be negative"), nil
+	}
+
 	// If TTL value is not provided either during update or create, don't bother.
 	// Core will set the system default value if the policies does not contain
 	// "root" and TTL value is zero.
@@ -416,6 +420,9 @@ func (b *backend) pathAppNumUsesUpdate(req *logical.Request, data *framework.Fie
 
 	if numUsesRaw, ok := data.GetOk("num_uses"); ok {
 		app.NumUses = numUsesRaw.(int)
+		if app.NumUses < 0 {
+			return logical.ErrorResponse("num_uses cannot be negative"), nil
+		}
 		return nil, b.setAppEntry(req.Storage, appName, app)
 	} else {
 		return logical.ErrorResponse("missing num_uses"), nil
@@ -688,7 +695,7 @@ func (b *backend) handleAppCredsCommon(req *logical.Request, data *framework.Fie
 		NumUses: app.NumUses,
 	}
 
-	if err = b.setUserIDEntry(req.Storage, selectorTypeApp, userID, userIDEntry); err != nil {
+	if err = b.registerUserIDEntry(req.Storage, selectorTypeApp, appName, userID, userIDEntry); err != nil {
 		return nil, fmt.Errorf("failed to store user ID: %s", err)
 	}
 

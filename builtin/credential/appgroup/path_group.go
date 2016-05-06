@@ -310,6 +310,10 @@ func (b *backend) pathGroupCreateUpdate(req *logical.Request, data *framework.Fi
 		group.NumUses = numUsesRaw.(int)
 	}
 
+	if group.NumUses < 0 {
+		return logical.ErrorResponse("num_uses cannot be negative"), nil
+	}
+
 	// If TTL value is not provided either during update or create, don't bother.
 	// Core will set the system default value if the policies does not contain
 	// "root" and TTL value is zero.
@@ -514,6 +518,9 @@ func (b *backend) pathGroupNumUsesUpdate(req *logical.Request, data *framework.F
 
 	if numUsesRaw, ok := data.GetOk("num_uses"); ok {
 		group.NumUses = numUsesRaw.(int)
+		if group.NumUses < 0 {
+			return logical.ErrorResponse("num_uses cannot be negative"), nil
+		}
 		return nil, b.setGroupEntry(req.Storage, groupName, group)
 	} else {
 		return logical.ErrorResponse("missing num_uses"), nil
@@ -786,7 +793,7 @@ func (b *backend) handleGroupCredsCommon(req *logical.Request, data *framework.F
 		NumUses: group.NumUses,
 	}
 
-	if err = b.setUserIDEntry(req.Storage, selectorTypeGroup, userID, userIDEntry); err != nil {
+	if err = b.registerUserIDEntry(req.Storage, selectorTypeGroup, groupName, userID, userIDEntry); err != nil {
 		return nil, fmt.Errorf("failed to store user ID: %s", err)
 	}
 
