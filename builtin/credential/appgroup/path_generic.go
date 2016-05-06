@@ -142,6 +142,14 @@ func (b *backend) setGenericEntry(s logical.Storage, genericName string, generic
 	}
 }
 
+func (b *backend) deleteGenericEntry(s logical.Storage, genericName string) error {
+	if genericName == "" {
+		return fmt.Errorf("missing app_name")
+	}
+
+	return s.Delete("generic/" + strings.ToLower(genericName))
+}
+
 func (b *backend) genericEntry(s logical.Storage, genericName string) (*genericStorageEntry, error) {
 	if genericName == "" {
 		return nil, fmt.Errorf("missing generic_name")

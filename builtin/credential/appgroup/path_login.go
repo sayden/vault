@@ -27,8 +27,8 @@ func pathLogin(b *backend) *framework.Path {
 }
 
 func (b *backend) pathLoginRenew(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	selectorType := req.Auth.Metadata["selector_type"]
-	selectorValue := req.Auth.Metadata["selector_value"]
+	selectorType := req.Auth.InternalData["selector_type"].(string)
+	selectorValue := req.Auth.InternalData["selector_value"].(string)
 	if selectorType == "" || selectorValue == "" {
 		return nil, fmt.Errorf("failed to fetch selector type and/or selector value during renewal")
 	}
@@ -55,7 +55,7 @@ func (b *backend) pathLoginUpdate(req *logical.Request, data *framework.FieldDat
 
 	resp := &logical.Response{
 		Auth: &logical.Auth{
-			Metadata: map[string]string{
+			InternalData: map[string]interface{}{
 				"selector_type":  validateResp.SelectorType,
 				"selector_value": validateResp.SelectorValue,
 			},

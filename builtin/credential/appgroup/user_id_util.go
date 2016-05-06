@@ -304,6 +304,11 @@ func (b *backend) userIDEntryValid(s logical.Storage, selectorType, selectorValu
 		if err := s.Delete(entryIndex); err != nil {
 			return false, err
 		}
+		if selectorType == selectorTypeGeneric {
+			if err := b.deleteGenericEntry(s, selectorValue); err != nil {
+				return false, err
+			}
+		}
 		b.userIDLocks[userID] = nil
 	} else {
 		result.NumUses -= 1
