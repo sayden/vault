@@ -36,22 +36,22 @@ func appPaths(b *backend) []*framework.Path {
 				},
 				"num_uses": &framework.FieldSchema{
 					Type:        framework.TypeInt,
-					Description: "Number of times the a UserID can access the App.",
+					Description: "Number of times the a UserID can access the App, after which it will expire.",
 				},
 				"ttl": &framework.FieldSchema{
 					Type:        framework.TypeDurationSecond,
-					Description: "Duration in seconds after which a UserID should expire.",
+					Description: "Duration in seconds after which the issued token should expire.",
 				},
 				"max_ttl": &framework.FieldSchema{
 					Type:        framework.TypeDurationSecond,
-					Description: "MaxTTL of the UserID created on the App.",
+					Description: "Duration in seconds after which the issued token should not be allowed to be renewed.",
 				},
 				"wrapped": &framework.FieldSchema{
 					Type: framework.TypeDurationSecond,
-					Description: `Duration in seconds, if specified, enables Cubbyhole mode. In this mode, a
-UserID will not be returned. Instead a new token will be returned. This token
-will have the UserID stored in its Cubbyhole. The value represented by 'wrapped'
-will be the duration after which the returned token expires.
+					Description: `Duration in seconds, if specified, enables the Cubbyhole mode. In this mode,
+the UserID creation endpoints will not return the UserID directly. Instead,
+a new token will be returned with the UserID stored in its Cubbyhole. The
+value of 'wrapped' is the duration after which the returned token expires.
 `,
 				},
 			},
@@ -73,7 +73,6 @@ will be the duration after which the returned token expires.
 				},
 				"policies": &framework.FieldSchema{
 					Type:        framework.TypeString,
-					Default:     "",
 					Description: "Comma separated list of policies on the App.",
 				},
 			},
@@ -94,7 +93,7 @@ will be the duration after which the returned token expires.
 				},
 				"num_uses": &framework.FieldSchema{
 					Type:        framework.TypeInt,
-					Description: "Number of times the a UserID can access the App.",
+					Description: "Number of times the a UserID can access the App, after which it will expire.",
 				},
 			},
 			Callbacks: map[logical.Operation]framework.OperationFunc{
@@ -114,7 +113,7 @@ will be the duration after which the returned token expires.
 				},
 				"ttl": &framework.FieldSchema{
 					Type:        framework.TypeDurationSecond,
-					Description: "Duration in seconds after which a UserID should expire.",
+					Description: "Duration in seconds after which the issued token should expire.",
 				},
 			},
 			Callbacks: map[logical.Operation]framework.OperationFunc{
@@ -134,7 +133,7 @@ will be the duration after which the returned token expires.
 				},
 				"max_ttl": &framework.FieldSchema{
 					Type:        framework.TypeDurationSecond,
-					Description: "MaxTTL of the UserID created on the App.",
+					Description: "Duration in seconds after which the issued token should not be allowed to be renewed.",
 				},
 			},
 			Callbacks: map[logical.Operation]framework.OperationFunc{
@@ -154,10 +153,10 @@ will be the duration after which the returned token expires.
 				},
 				"wrapped": &framework.FieldSchema{
 					Type: framework.TypeDurationSecond,
-					Description: `Duration in seconds, if specified, enables Cubbyhole mode. In this mode, a
-UserID will not be returned. Instead a new token will be returned. This token
-will have the UserID stored in its Cubbyhole. The value represented by 'wrapped'
-will be the duration after which the returned token expires.
+					Description: `Duration in seconds, if specified, enables the Cubbyhole mode. In this mode,
+the UserID creation endpoints will not return the UserID directly. Instead,
+a new token will be returned with the UserID stored in its Cubbyhole. The
+value of 'wrapped' is the duration after which the returned token expires.
 `,
 				},
 			},
@@ -179,7 +178,7 @@ will be the duration after which the returned token expires.
 				"user_id": &framework.FieldSchema{
 					Type:        framework.TypeString,
 					Default:     "",
-					Description: "NOT USER SUPPLIED. UNDOCUMENTED.",
+					Description: "NOT USER SUPPLIED AND UNDOCUMENTED.",
 				},
 			},
 			Callbacks: map[logical.Operation]framework.OperationFunc{
@@ -277,7 +276,8 @@ func (b *backend) pathAppCreateUpdate(req *logical.Request, data *framework.Fiel
 
 	// If TTL value is not provided either during update or create, don't bother.
 	// Core will set the system default value if the policies does not contain
-	// "root" and TTL value is zero.
+	// "root" and if TTL value is zero.
+	//
 	// Update only if value is supplied. Defaults to zero.
 	if ttlRaw, ok := data.GetOk("ttl"); ok {
 		app.TTL = time.Duration(ttlRaw.(int)) * time.Second
@@ -317,7 +317,7 @@ func (b *backend) pathAppRead(req *logical.Request, data *framework.FieldData) (
 	} else if app == nil {
 		return nil, nil
 	} else {
-		// Convert the values to second
+		// Convert the 'time.Duration' values to second.
 		app.TTL = app.TTL / time.Second
 		app.MaxTTL = app.MaxTTL / time.Second
 		app.Wrapped = app.Wrapped / time.Second
@@ -392,6 +392,7 @@ func (b *backend) pathAppPoliciesDelete(req *logical.Request, data *framework.Fi
 		return nil, nil
 	}
 
+	// Deleting a field means resetting the value in the entry.
 	app.Policies = (&appStorageEntry{}).Policies
 
 	return nil, b.setAppEntry(req.Storage, appName, app)
@@ -455,6 +456,7 @@ func (b *backend) pathAppNumUsesDelete(req *logical.Request, data *framework.Fie
 		return nil, nil
 	}
 
+	// Deleting a field means resetting the value in the entry.
 	app.NumUses = (&appStorageEntry{}).NumUses
 
 	return nil, b.setAppEntry(req.Storage, appName, app)
@@ -518,6 +520,7 @@ func (b *backend) pathAppTTLDelete(req *logical.Request, data *framework.FieldDa
 		return nil, nil
 	}
 
+	// Deleting a field means resetting the value in the entry.
 	app.TTL = (&appStorageEntry{}).TTL
 
 	return nil, b.setAppEntry(req.Storage, appName, app)
@@ -539,7 +542,7 @@ func (b *backend) pathAppMaxTTLUpdate(req *logical.Request, data *framework.Fiel
 
 	if maxTTLRaw, ok := data.GetOk("max_ttl"); ok {
 		if app.MaxTTL = time.Duration(maxTTLRaw.(int)) * time.Second; app.TTL > app.MaxTTL {
-			return logical.ErrorResponse("max_ttl should be greater than ttl"), nil
+			return logical.ErrorResponse("max_ttl should be greater than or equal to ttl"), nil
 		}
 		return nil, b.setAppEntry(req.Storage, appName, app)
 	} else {
@@ -581,6 +584,7 @@ func (b *backend) pathAppMaxTTLDelete(req *logical.Request, data *framework.Fiel
 		return nil, nil
 	}
 
+	// Deleting a field means resetting the value in the entry.
 	app.MaxTTL = (&appStorageEntry{}).MaxTTL
 
 	return nil, b.setAppEntry(req.Storage, appName, app)

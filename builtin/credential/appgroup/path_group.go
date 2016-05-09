@@ -755,7 +755,7 @@ func (b *backend) pathGroupCredsRead(req *logical.Request, data *framework.Field
 }
 
 func (b *backend) pathGroupCredsSpecificUpdate(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	return b.handleAppCredsCommon(req, data)
+	return b.handleGroupCredsCommon(req, data)
 }
 
 func (b *backend) handleGroupCredsCommon(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
