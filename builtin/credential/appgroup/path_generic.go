@@ -20,7 +20,6 @@ type genericStorageEntry struct {
 	TTL                time.Duration `json:"ttl" structs:"ttl" mapstructure:"ttl"`
 	MaxTTL             time.Duration `json:"max_ttl" structs:"max_ttl" mapstructure:"max_ttl"`
 	Wrapped            time.Duration `json:"wrapped" structs:"wrapped" mapstructure:"wrapped"`
-	HMACKey            string        `json:"hmac_key" structs:"hmac_key" mapstructure:"hmac_key"`
 	AdditionalPolicies []string      `json:"additional_policies" structs:"additional_policies" mapstructure:"additional_policies"`
 }
 
@@ -208,29 +207,15 @@ func (b *backend) handleGenericCredsCommon(req *logical.Request, data *framework
 		return logical.ErrorResponse("ttl should not be greater than max_ttl"), nil
 	}
 
-	genericName, err := randomName()
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate a name for generic entry")
-	}
-
-	// Maintain a per-entry HMAC key.
-	generic.HMACKey, err = uuid.GenerateUUID()
-	if err != nil || generic.HMACKey == "" {
-		return nil, fmt.Errorf("failed to generate uuid HMAC key: %v", err)
-	}
-
-	// Store the entry.
-	if err := b.setGenericEntry(req.Storage, genericName, generic); err != nil {
-		return nil, err
-	}
-
-	userIDRaw := data.Get("user_id").(string)
-	if userIDRaw == "" {
+	userID := data.Get("user_id").(string)
+	if userID == "" {
 		return logical.ErrorResponse("missing user_id"), nil
 	}
 
-	userID, err := prepareGenericUserID(genericName, generic, userIDRaw)
-	if err != nil {
+	genericName := b.salt.SaltID(userID)
+
+	// Store the entry.
+	if err := b.setGenericEntry(req.Storage, genericName, generic); err != nil {
 		return nil, err
 	}
 
@@ -238,7 +223,7 @@ func (b *backend) handleGenericCredsCommon(req *logical.Request, data *framework
 		NumUses: generic.NumUses,
 	}
 
-	if err = b.registerUserIDEntry(req.Storage, selectorTypeGeneric, genericName, userID, userIDEntry); err != nil {
+	if err := b.registerUserIDEntry(req.Storage, selectorTypeGeneric, genericName, userID, userIDEntry); err != nil {
 		return nil, fmt.Errorf("failed to store user ID: %s", err)
 	}
 
@@ -247,24 +232,6 @@ func (b *backend) handleGenericCredsCommon(req *logical.Request, data *framework
 			"user_id": userID,
 		},
 	}, nil
-}
-
-func prepareGenericUserID(genericName string, generic *genericStorageEntry, userID string) (string, error) {
-	if userID == "" {
-		return "", fmt.Errorf("missing userID")
-	}
-	if genericName == "" {
-		return "", fmt.Errorf("missing genericName")
-	}
-	if generic == nil {
-		return "", fmt.Errorf("nil generic")
-	}
-
-	// Attach the selector to the user ID.
-	userID = fmt.Sprintf("generic=%s:%s", genericName, userID)
-
-	// Attach HMAC to the user IDe.
-	return appendHMAC(userID, generic.HMACKey)
 }
 
 // Create a random name for generic entry.

@@ -18,7 +18,6 @@ type appStorageEntry struct {
 	TTL      time.Duration `json:"ttl" structs:"ttl" mapstructure:"ttl"`
 	MaxTTL   time.Duration `json:"max_ttl" structs:"max_ttl" mapstructure:"max_ttl"`
 	Wrapped  time.Duration `json:"wrapped" structs:"wrapped" mapstructure:"wrapped"`
-	HMACKey  string        `json:"hmac_key" structs:"hmac_key" mapstructure:"hmac_key"`
 }
 
 func appPaths(b *backend) []*framework.Path {
@@ -301,12 +300,6 @@ func (b *backend) pathAppCreateUpdate(req *logical.Request, data *framework.Fiel
 	// Update only if value is supplied. Defaults to zero.
 	if wrappedRaw, ok := data.GetOk("wrapped"); ok {
 		app.Wrapped = time.Duration(wrappedRaw.(int)) * time.Second
-	}
-
-	// Maintain a per-app HMAC key.
-	app.HMACKey, err = uuid.GenerateUUID()
-	if err != nil || app.HMACKey == "" {
-		return nil, fmt.Errorf("failed to generate uuid HMAC key: %v", err)
 	}
 
 	// Store the entry.
@@ -673,8 +666,8 @@ func (b *backend) handleAppCredsCommon(req *logical.Request, data *framework.Fie
 		return logical.ErrorResponse("missing app_name"), nil
 	}
 
-	userIDRaw := data.Get("user_id").(string)
-	if userIDRaw == "" {
+	userID := data.Get("user_id").(string)
+	if userID == "" {
 		return logical.ErrorResponse("missing user_id"), nil
 	}
 
@@ -683,12 +676,7 @@ func (b *backend) handleAppCredsCommon(req *logical.Request, data *framework.Fie
 		return nil, err
 	}
 	if app == nil {
-		return logical.ErrorResponse(fmt.Sprintf("App %s does not exist", appName)), nil
-	}
-
-	userID, err := prepareAppUserID(appName, app, userIDRaw)
-	if err != nil {
-		return nil, err
+		return logical.ErrorResponse(fmt.Sprintf("app %s does not exist", appName)), nil
 	}
 
 	userIDEntry := &userIDStorageEntry{
@@ -704,24 +692,6 @@ func (b *backend) handleAppCredsCommon(req *logical.Request, data *framework.Fie
 			"user_id": userID,
 		},
 	}, nil
-}
-
-func prepareAppUserID(appName string, app *appStorageEntry, userID string) (string, error) {
-	if userID == "" {
-		return "", fmt.Errorf("missing userID")
-	}
-	if appName == "" {
-		return "", fmt.Errorf("missing appName")
-	}
-	if app == nil {
-		return "", fmt.Errorf("nil app")
-	}
-
-	// Attach the selector to the user ID.
-	userID = fmt.Sprintf("app=%s:%s", appName, userID)
-
-	// Attach HMAC to the user ID.
-	return appendHMAC(userID, app.HMACKey)
 }
 
 var appHelp = map[string][2]string{

@@ -18,7 +18,6 @@ type groupStorageEntry struct {
 	TTL                time.Duration `json:"ttl" structs:"ttl" mapstructure:"ttl"`
 	MaxTTL             time.Duration `json:"max_ttl" structs:"max_ttl" mapstructure:"max_ttl"`
 	Wrapped            time.Duration `json:"wrapped" structs:"wrapped" mapstructure:"wrapped"`
-	HMACKey            string        `json:"hmac_key" structs:"hmac_key" mapstructure:"hmac_key"`
 	AdditionalPolicies []string      `json:"additional_policies" structs:"additional_policies" mapstructure:"additional_policies"`
 }
 
@@ -339,12 +338,6 @@ func (b *backend) pathGroupCreateUpdate(req *logical.Request, data *framework.Fi
 	// Update only if value is supplied. Defaults to zero.
 	if wrappedRaw, ok := data.GetOk("wrapped"); ok {
 		group.Wrapped = time.Duration(wrappedRaw.(int)) * time.Second
-	}
-
-	// Maintain a per-group HMAC key.
-	group.HMACKey, err = uuid.GenerateUUID()
-	if err != nil || group.HMACKey == "" {
-		return nil, fmt.Errorf("failed to generate uuid HMAC key: %v", err)
 	}
 
 	// Store the entry.
@@ -771,8 +764,8 @@ func (b *backend) handleGroupCredsCommon(req *logical.Request, data *framework.F
 		return logical.ErrorResponse("missing group_name"), nil
 	}
 
-	userIDRaw := data.Get("user_id").(string)
-	if userIDRaw == "" {
+	userID := data.Get("user_id").(string)
+	if userID == "" {
 		return logical.ErrorResponse("missing user_id"), nil
 	}
 
@@ -782,11 +775,6 @@ func (b *backend) handleGroupCredsCommon(req *logical.Request, data *framework.F
 	}
 	if group == nil {
 		return logical.ErrorResponse(fmt.Sprintf("Group %s does not exist", groupName)), nil
-	}
-
-	userID, err := prepareGroupUserID(groupName, group, userIDRaw)
-	if err != nil {
-		return nil, err
 	}
 
 	userIDEntry := &userIDStorageEntry{
@@ -802,24 +790,6 @@ func (b *backend) handleGroupCredsCommon(req *logical.Request, data *framework.F
 			"user_id": userID,
 		},
 	}, nil
-}
-
-func prepareGroupUserID(groupName string, group *groupStorageEntry, userID string) (string, error) {
-	if userID == "" {
-		return "", fmt.Errorf("missing userID")
-	}
-	if groupName == "" {
-		return "", fmt.Errorf("missing groupName")
-	}
-	if group == nil {
-		return "", fmt.Errorf("nil group")
-	}
-
-	// Attach the selector to the user ID.
-	userID = fmt.Sprintf("group=%s:%s", groupName, userID)
-
-	// Attach HMAC to the user IDe.
-	return appendHMAC(userID, group.HMACKey)
 }
 
 var groupHelp = map[string][2]string{

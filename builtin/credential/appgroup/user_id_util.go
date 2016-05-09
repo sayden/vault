@@ -3,9 +3,9 @@ package appgroup
 import (
 	"crypto/hmac"
 	"crypto/sha256"
-	"crypto/subtle"
 	"encoding/base64"
 	"fmt"
+	"log"
 	"strings"
 	"sync"
 	"time"
@@ -26,13 +26,7 @@ type userIDStorageEntry struct {
 	MaxTTL  time.Duration `json:"max_ttl" structs:"max_ttl" mapstructure:"max_ttl"`
 }
 
-type parseUserIDResponse struct {
-	Verified      bool   `json:"verified" structs:"verified" mapstructure:"verified"`
-	SelectorType  string `json:"selector_type" structs:"selector_type" mapstructure:"selector_type"`
-	SelectorValue string `json:"selector_value" structs:"selector_value" mapstructure:"selector_value"`
-}
-
-type validateSelectorResponse struct {
+type validationResponse struct {
 	SelectorType  string        `json:"selector_type" structs:"selector_type" mapstructure:"selector_type"`
 	SelectorValue string        `json:"selector_value" structs:"selector_value" mapstructure:"selector_value"`
 	TTL           time.Duration `json:"ttl" structs:"ttl" mapstructure:"ttl"`
@@ -41,33 +35,37 @@ type validateSelectorResponse struct {
 	Policies      []string      `json:"policies" structs:"policies" mapstructure:"policies"`
 }
 
-func (b *backend) validateUserID(s logical.Storage, userID string) (*validateSelectorResponse, error) {
-	// First ensure that the UserID presented is not tampered with.
-	// After authentication, get the selector type and value.
-	parseResp, err := b.parseAndVerifyUserID(s, userID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse and verify user ID: %s", err)
+func (b *backend) validateUserID(s logical.Storage, selector, userID string) (*validationResponse, error) {
+	if selector == "" {
+		return nil, fmt.Errorf("missing selector")
+	}
+	if userID == "" {
+		return nil, fmt.Errorf("missing userID")
 	}
 
-	// Fail if HMAC verification was unsuccessful or if the selector
-	// type and value was not present in the UserID.
-	if parseResp == nil ||
-		!parseResp.Verified ||
-		parseResp.SelectorType == "" ||
-		parseResp.SelectorValue == "" {
-		return nil, fmt.Errorf("failed to parse and verify user ID")
+	selectorType := ""
+	selectorValue := ""
+	switch {
+	case selector == "generic":
+		selectorType = "generic"
+		selectorValue = b.salt.SaltID(userID)
+	case strings.HasPrefix(selector, "app/") || strings.HasPrefix(selector, "group/"):
+		selectorFields := strings.SplitN(selector, "/", 2)
+		if len(selectorFields) != 2 {
+			return nil, fmt.Errorf("invalid length for selector in user ID")
+		}
+		selectorType = strings.TrimSpace(selectorFields[0])
+		selectorValue = strings.TrimSpace(selectorFields[1])
+		if selectorValue == "" {
+			return nil, fmt.Errorf("missing selector value")
+		}
+	default:
+		return nil, fmt.Errorf("unrecognized selector")
 	}
+	log.Printf("selectorType: %s", selectorType)
+	log.Printf("selectorValue: %s", selectorValue)
 
-	// Now, it is verified that the UserID is not modified. But it
-	// may have been deleted.
-	//
-	// See if there is a corresponding entry for the presented UserID.
-	// The storage index for UserIDs will be created by salting the
-	// 'prepared' UserID value. Meaning, salting will be done on the
-	// UserID after HMAC is attached to it. So, a direct lookup of the
-	// presented UserID (and not the plaintext part of it), based on
-	// the selector, should return the entry.
-	valid, err := b.userIDEntryValid(s, parseResp.SelectorType, parseResp.SelectorValue, userID)
+	valid, err := b.userIDEntryValid(s, selectorType, selectorValue, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -75,22 +73,14 @@ func (b *backend) validateUserID(s logical.Storage, userID string) (*validateSel
 		return nil, fmt.Errorf("invalid user ID")
 	}
 
-	// Return the effective configuration values based on the current snapshot of the configuration.
-	return b.validateSelector(s, parseResp.SelectorType, parseResp.SelectorValue)
+	return b.validateSelector(s, selectorType, selectorValue)
 }
 
-func (b *backend) validateSelector(s logical.Storage, selectorType, selectorValue string) (*validateSelectorResponse, error) {
-	resp := &validateSelectorResponse{
+func (b *backend) validateSelector(s logical.Storage, selectorType, selectorValue string) (*validationResponse, error) {
+	resp := &validationResponse{
 		SelectorType:  selectorType,
 		SelectorValue: selectorValue,
 	}
-	// Based on the selector type, prepare the "effective" policies.
-	// This is credential issue time, so validate the TTL and MaxTTL
-	// boundaries too.
-	//var policies []string
-	//var ttl time.Duration
-	//var maxTTL time.Duration
-	//var wrapped time.Duration
 	switch selectorType {
 	case selectorTypeApp:
 		app, err := b.appEntry(s, selectorValue)
@@ -174,91 +164,6 @@ func (b *backend) validateSelector(s logical.Storage, selectorType, selectorValu
 	return resp, nil
 }
 
-func (b *backend) parseAndVerifyUserID(s logical.Storage, userID string) (*parseUserIDResponse, error) {
-	if userID == "" {
-		return nil, fmt.Errorf("missing userID")
-	}
-
-	// Split the userID into substrings.
-	fields := strings.Split(userID, ":")
-	if len(fields) < 3 {
-		return nil, fmt.Errorf("invalid number of fields in userID")
-	}
-
-	// Extract out the selector fields.
-
-	// Use SplitN and only split into two halves. Otherwise,
-	// strings.Split() might cut the selector into more than two
-	// fields, if there is a '=' on the value part.
-	selectorFields := strings.SplitN(fields[0], "=", 2)
-	if len(selectorFields) != 2 {
-		return nil, fmt.Errorf("invalid length for selector in user ID")
-	}
-	selectorType := strings.TrimSpace(selectorFields[0])
-	selectorValue := strings.TrimSpace(selectorFields[1])
-	if selectorType == "" || selectorValue == "" {
-		return nil, fmt.Errorf("selector field or value of the user ID is empty")
-	}
-
-	// Get the HMAC key based on the selector type.
-	hmacKey := ""
-	switch selectorType {
-	case selectorTypeApp:
-		app, err := b.appEntry(s, selectorValue)
-		if err != nil {
-			return nil, err
-		}
-		if app == nil {
-			return nil, fmt.Errorf("invalid app credential selector in user ID")
-		}
-		hmacKey = app.HMACKey
-	case selectorTypeGroup:
-		group, err := b.groupEntry(s, selectorValue)
-		if err != nil {
-			return nil, err
-		}
-		if group == nil {
-			return nil, fmt.Errorf("invalid group credential in user ID")
-		}
-		hmacKey = group.HMACKey
-	case selectorTypeGeneric:
-		generic, err := b.genericEntry(s, selectorValue)
-		if err != nil {
-			return nil, err
-		}
-		if generic == nil {
-			return nil, fmt.Errorf("invalid generic credential in user ID")
-		}
-		hmacKey = generic.HMACKey
-	default:
-		// TBD: Work out the case to handle specified user IDs.
-		return nil, fmt.Errorf("invalid selector type in the user ID")
-	}
-
-	// Extract out the HMAC.
-	actualHMAC := fields[len(fields)-1]
-
-	// Remove the HMAC from the collection.
-	fields = fields[:len(fields)-1]
-
-	// Join the rest of the items again.
-	plaintext := strings.Join(fields, ":")
-
-	// Create the HMAC of the plaintext part.
-	computedHMAC, err := createHMACBase64(hmacKey, plaintext)
-	if err != nil {
-		return nil, err
-	}
-
-	// Return the authentication status and provide information to fetch
-	// the authorization data.
-	return &parseUserIDResponse{
-		Verified:      subtle.ConstantTimeCompare([]byte(actualHMAC), []byte(computedHMAC)) == 1,
-		SelectorType:  selectorType,
-		SelectorValue: selectorValue,
-	}, nil
-}
-
 func (b *backend) userIDEntryValid(s logical.Storage, selectorType, selectorValue, userID string) (bool, error) {
 	lock := b.userIDLocks[userID]
 	if lock == nil {
@@ -322,7 +227,6 @@ func (b *backend) userIDEntryValid(s logical.Storage, selectorType, selectorValu
 }
 
 func (b *backend) registerUserIDEntry(s logical.Storage, selectorType, selectorValue, userID string, userIDEntry *userIDStorageEntry) error {
-	//key := fmt.Sprintf("%s%s", selectorType, selectorValue)
 	if b.userIDLocks[userID] != nil {
 		return fmt.Errorf("user ID is already registered")
 	}
