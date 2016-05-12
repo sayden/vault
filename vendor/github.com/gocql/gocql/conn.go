@@ -19,6 +19,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"golang.org/x/net/context"
+
 	"github.com/gocql/gocql/internal/lru"
 
 	"github.com/gocql/gocql/internal/streams"
@@ -126,7 +128,7 @@ type Conn struct {
 	timeout time.Duration
 	cfg     *ConnConfig
 
-	headerBuf []byte
+	headerBuf [maxFrameHeaderSize]byte
 
 	streams *streams.IDGenerator
 	mu      sync.RWMutex
@@ -138,7 +140,6 @@ type Conn struct {
 	addr            string
 	version         uint8
 	currentKeyspace string
-	started         bool
 
 	host *HostInfo
 
@@ -175,17 +176,6 @@ func Connect(host *HostInfo, addr string, cfg *ConnConfig,
 		return nil, err
 	}
 
-	// going to default to proto 2
-	if cfg.ProtoVersion < protoVersion1 || cfg.ProtoVersion > protoVersion4 {
-		log.Printf("unsupported protocol version: %d using 2\n", cfg.ProtoVersion)
-		cfg.ProtoVersion = 2
-	}
-
-	headerSize := 8
-	if cfg.ProtoVersion > protoVersion2 {
-		headerSize = 9
-	}
-
 	c := &Conn{
 		conn:         conn,
 		r:            bufio.NewReader(conn),
@@ -197,7 +187,6 @@ func Connect(host *HostInfo, addr string, cfg *ConnConfig,
 		errorHandler: errorHandler,
 		compressor:   cfg.Compressor,
 		auth:         cfg.Authenticator,
-		headerBuf:    make([]byte, headerSize),
 		quit:         make(chan struct{}),
 		session:      session,
 		streams:      streams.New(cfg.ProtoVersion),
@@ -208,13 +197,54 @@ func Connect(host *HostInfo, addr string, cfg *ConnConfig,
 		c.setKeepalive(cfg.Keepalive)
 	}
 
-	go c.serve()
-
-	if err := c.startup(); err != nil {
-		conn.Close()
-		return nil, err
+	var (
+		ctx    context.Context
+		cancel func()
+	)
+	if c.timeout > 0 {
+		ctx, cancel = context.WithTimeout(context.Background(), c.timeout)
+	} else {
+		ctx, cancel = context.WithCancel(context.Background())
 	}
-	c.started = true
+	defer cancel()
+
+	frameTicker := make(chan struct{}, 1)
+	startupErr := make(chan error)
+	go func() {
+		for range frameTicker {
+			err := c.recv()
+			if err != nil {
+				select {
+				case startupErr <- err:
+				case <-ctx.Done():
+				}
+
+				return
+			}
+		}
+	}()
+
+	go func() {
+		defer close(frameTicker)
+		err := c.startup(ctx, frameTicker)
+		select {
+		case startupErr <- err:
+		case <-ctx.Done():
+		}
+	}()
+
+	select {
+	case err := <-startupErr:
+		if err != nil {
+			c.Close()
+			return nil, err
+		}
+	case <-ctx.Done():
+		c.Close()
+		return nil, errors.New("gocql: no response to connection startup within timeout")
+	}
+
+	go c.serve()
 
 	return c, nil
 }
@@ -250,7 +280,7 @@ func (c *Conn) Read(p []byte) (n int, err error) {
 	return
 }
 
-func (c *Conn) startup() error {
+func (c *Conn) startup(ctx context.Context, frameTicker chan struct{}) error {
 	m := map[string]string{
 		"CQL_VERSION": c.cfg.CQLVersion,
 	}
@@ -259,7 +289,13 @@ func (c *Conn) startup() error {
 		m["COMPRESSION"] = c.compressor.Name()
 	}
 
-	framer, err := c.exec(&writeStartupFrame{opts: m}, nil)
+	select {
+	case frameTicker <- struct{}{}:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+
+	framer, err := c.exec(ctx, &writeStartupFrame{opts: m}, nil)
 	if err != nil {
 		return err
 	}
@@ -275,13 +311,13 @@ func (c *Conn) startup() error {
 	case *readyFrame:
 		return nil
 	case *authenticateFrame:
-		return c.authenticateHandshake(v)
+		return c.authenticateHandshake(ctx, v, frameTicker)
 	default:
 		return NewErrProtocol("Unknown type of response to startup frame: %s", v)
 	}
 }
 
-func (c *Conn) authenticateHandshake(authFrame *authenticateFrame) error {
+func (c *Conn) authenticateHandshake(ctx context.Context, authFrame *authenticateFrame, frameTicker chan struct{}) error {
 	if c.auth == nil {
 		return fmt.Errorf("authentication required (using %q)", authFrame.class)
 	}
@@ -294,7 +330,13 @@ func (c *Conn) authenticateHandshake(authFrame *authenticateFrame) error {
 	req := &writeAuthResponseFrame{data: resp}
 
 	for {
-		framer, err := c.exec(req, nil)
+		select {
+		case frameTicker <- struct{}{}:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+
+		framer, err := c.exec(ctx, req, nil)
 		if err != nil {
 			return err
 		}
@@ -353,7 +395,7 @@ func (c *Conn) closeWithError(err error) {
 	close(c.quit)
 	c.conn.Close()
 
-	if c.started && err != nil {
+	if err != nil {
 		c.errorHandler.HandleError(c, err, true)
 	}
 }
@@ -398,7 +440,7 @@ func (c *Conn) recv() error {
 	}
 
 	// were just reading headers over and over and copy bodies
-	head, err := readHeader(c.r, c.headerBuf)
+	head, err := readHeader(c.r, c.headerBuf[:])
 	if err != nil {
 		return err
 	}
@@ -505,7 +547,7 @@ type callReq struct {
 	timer *time.Timer
 }
 
-func (c *Conn) exec(req frameWriter, tracer Tracer) (*framer, error) {
+func (c *Conn) exec(ctx context.Context, req frameWriter, tracer Tracer) (*framer, error) {
 	// TODO: move tracer onto conn
 	stream, ok := c.streams.GetStream()
 	if !ok {
@@ -567,6 +609,11 @@ func (c *Conn) exec(req frameWriter, tracer Tracer) (*framer, error) {
 		timeoutCh = call.timer.C
 	}
 
+	var ctxDone <-chan struct{}
+	if ctx != nil {
+		ctxDone = ctx.Done()
+	}
+
 	select {
 	case err := <-call.resp:
 		close(call.timeout)
@@ -584,6 +631,9 @@ func (c *Conn) exec(req frameWriter, tracer Tracer) (*framer, error) {
 		close(call.timeout)
 		c.handleTimeout()
 		return nil, ErrTimeoutNoResponse
+	case <-ctxDone:
+		close(call.timeout)
+		return nil, ctx.Err()
 	case <-c.quit:
 		return nil, ErrConnectionClosed
 	}
@@ -616,7 +666,7 @@ type inflightPrepare struct {
 	preparedStatment *preparedStatment
 }
 
-func (c *Conn) prepareStatement(stmt string, tracer Tracer) (*preparedStatment, error) {
+func (c *Conn) prepareStatement(ctx context.Context, stmt string, tracer Tracer) (*preparedStatment, error) {
 	stmtCacheKey := c.session.stmtsLRU.keyFor(c.addr, c.currentKeyspace, stmt)
 	flight, ok := c.session.stmtsLRU.execIfMissing(stmtCacheKey, func(lru *lru.Cache) *inflightPrepare {
 		flight := new(inflightPrepare)
@@ -634,7 +684,7 @@ func (c *Conn) prepareStatement(stmt string, tracer Tracer) (*preparedStatment, 
 		statement: stmt,
 	}
 
-	framer, err := c.exec(prep, tracer)
+	framer, err := c.exec(ctx, prep, tracer)
 	if err != nil {
 		flight.err = err
 		flight.wg.Done()
@@ -689,6 +739,7 @@ func (c *Conn) executeQuery(qry *Query) *Iter {
 	// frame checks that it is not 0
 	params.serialConsistency = qry.serialCons
 	params.defaultTimestamp = qry.defaultTimestamp
+	params.defaultTimestampValue = qry.defaultTimestampValue
 
 	if len(qry.pageState) > 0 {
 		params.pagingState = qry.pageState
@@ -705,7 +756,7 @@ func (c *Conn) executeQuery(qry *Query) *Iter {
 	if qry.shouldPrepare() {
 		// Prepare all DML queries. Other queries can not be prepared.
 		var err error
-		info, err = c.prepareStatement(qry.stmt, qry.trace)
+		info, err = c.prepareStatement(qry.context, qry.stmt, qry.trace)
 		if err != nil {
 			return &Iter{err: err}
 		}
@@ -756,7 +807,7 @@ func (c *Conn) executeQuery(qry *Query) *Iter {
 		}
 	}
 
-	framer, err := c.exec(frame, qry.trace)
+	framer, err := c.exec(qry.context, frame, qry.trace)
 	if err != nil {
 		return &Iter{err: err}
 	}
@@ -856,7 +907,7 @@ func (c *Conn) UseKeyspace(keyspace string) error {
 	q := &writeQueryFrame{statement: `USE "` + keyspace + `"`}
 	q.params.consistency = Any
 
-	framer, err := c.exec(q, nil)
+	framer, err := c.exec(context.Background(), q, nil)
 	if err != nil {
 		return err
 	}
@@ -899,7 +950,7 @@ func (c *Conn) executeBatch(batch *Batch) *Iter {
 		entry := &batch.Entries[i]
 		b := &req.statements[i]
 		if len(entry.Args) > 0 || entry.binding != nil {
-			info, err := c.prepareStatement(entry.Stmt, nil)
+			info, err := c.prepareStatement(batch.context, entry.Stmt, nil)
 			if err != nil {
 				return &Iter{err: err}
 			}
@@ -943,7 +994,7 @@ func (c *Conn) executeBatch(batch *Batch) *Iter {
 	}
 
 	// TODO: should batch support tracing?
-	framer, err := c.exec(req, nil)
+	framer, err := c.exec(batch.context, req, nil)
 	if err != nil {
 		return &Iter{err: err}
 	}

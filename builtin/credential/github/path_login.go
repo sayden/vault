@@ -3,10 +3,10 @@ package github
 import (
 	"fmt"
 	"net/url"
-	"reflect"
-	"sort"
+	"strings"
 
 	"github.com/google/go-github/github"
+	"github.com/hashicorp/vault/helper/policyutil"
 	"github.com/hashicorp/vault/logical"
 	"github.com/hashicorp/vault/logical/framework"
 )
@@ -46,7 +46,7 @@ func (b *backend) pathLogin(
 		return nil, err
 	}
 
-	ttl, _, err := b.SanitizeTTL(config.TTL.String(), config.MaxTTL.String())
+	ttl, _, err := b.SanitizeTTLStr(config.TTL.String(), config.MaxTTL.String())
 	if err != nil {
 		return logical.ErrorResponse(fmt.Sprintf("[ERR]:%s", err)), nil
 	}
@@ -83,8 +83,7 @@ func (b *backend) pathLoginRenew(
 	} else {
 		verifyResp = verifyResponse
 	}
-	sort.Strings(req.Auth.Policies)
-	if !reflect.DeepEqual(verifyResp.Policies, req.Auth.Policies) {
+	if !policyutil.EquivalentPolicies(verifyResp.Policies, req.Auth.Policies) {
 		return logical.ErrorResponse("policies do not match"), nil
 	}
 
@@ -145,7 +144,7 @@ func (b *backend) verifyCredentials(req *logical.Request, token string) (*verify
 	}
 
 	for _, o := range allOrgs {
-		if *o.Login == config.Org {
+		if strings.ToLower(*o.Login) == strings.ToLower(config.Org) {
 			org = &o
 			break
 		}

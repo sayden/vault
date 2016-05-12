@@ -1,6 +1,7 @@
 language: go
 
-sudo: false
+sudo: required
+dist: trusty
 
 cache:
   directories:
@@ -29,8 +30,6 @@ go:
 
 install:
   - pip install --user cql PyYAML six
-  - go get golang.org/x/tools/cmd/vet
-  - go get golang.org/x/tools/cmd/cover
   - git clone https://github.com/pcmanus/ccm.git
   - pushd ccm
   - ./setup.py install --user

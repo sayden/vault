@@ -16,24 +16,10 @@ type PoolConfig struct {
 	// HostSelectionPolicy sets the policy for selecting which host to use for a
 	// given query (default: RoundRobinHostPolicy())
 	HostSelectionPolicy HostSelectionPolicy
-
-	// ConnSelectionPolicy sets the policy factory for selecting a connection to use for
-	// each host for a query (default: RoundRobinConnPolicy())
-	ConnSelectionPolicy func() ConnSelectionPolicy
 }
 
 func (p PoolConfig) buildPool(session *Session) *policyConnPool {
-	hostSelection := p.HostSelectionPolicy
-	if hostSelection == nil {
-		hostSelection = RoundRobinHostPolicy()
-	}
-
-	connSelection := p.ConnSelectionPolicy
-	if connSelection == nil {
-		connSelection = RoundRobinConnPolicy()
-	}
-
-	return newPolicyConnPool(session, hostSelection, connSelection)
+	return newPolicyConnPool(session)
 }
 
 type DiscoveryConfig struct {
@@ -85,6 +71,9 @@ type ClusterConfig struct {
 	PoolConfig PoolConfig
 
 	Discovery DiscoveryConfig
+
+	// If not zero, gocql attempt to reconnect known DOWN nodes in every ReconnectSleep.
+	ReconnectInterval time.Duration
 
 	// The maximum amount of time to wait for schema agreement in a cluster after
 	// receiving a schema change frame. (deault: 60s)
@@ -140,6 +129,7 @@ func NewCluster(hosts ...string) *ClusterConfig {
 		PageSize:               5000,
 		DefaultTimestamp:       true,
 		MaxWaitSchemaAgreement: 60 * time.Second,
+		ReconnectInterval:      60 * time.Second,
 	}
 	return cfg
 }

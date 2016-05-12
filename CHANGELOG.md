@@ -1,17 +1,114 @@
-## 0.6.0 (Unreleased)
+## 0.5.3 (Unreleased)
+
+SECURITY:
+
+ * Although `sys/revoke-prefix` was intended to revoke prefixes of secrets (via
+   lease IDs, which incorporate path information) and
+   `auth/token/revoke-prefix` was intended to revoke prefixes of tokens (using
+   the tokens' paths and, since 0.5.2, role information), in implementation
+   they both behaved exactly the same way since a single component in Vault is
+   responsible for managing lifetimes of both, and the type of the tracked
+   lifetime was not being checked. The end result was that either endpoint
+   could revoke both secret leases and tokens. We consider this a very minor
+   security issue as there are a number of mitigating factors: both endpoints
+   require `sudo` capability in addition to write capability, preventing
+   blanket ACL path globs from providing access; both work by using the prefix
+   to revoke as a part of the endpoint path, allowing them to be properly
+   ACL'd; and both are intended for emergency scenarios and users should
+   already not generally have access to either one. In order to prevent
+   confusion, we have simply removed `auth/token/revoke-prefix` in 0.6, and
+   `sys/revoke-prefix` will be meant for both leases and tokens instead.
+
+DEPRECATIONS/BREAKING CHANGES:
+
+ * `auth/token/revoke-prefix` has been removed. See the security notice for
+   details. [GH-1280]
+ * Vault will now automatically register itself as the `vault` service when
+   using the `consul` backend and will perform its own health checks.  See
+   the Consul backend documentation for information on how to disable
+   auto-registration and service checks.
+ * List operations that do not find any keys now return a `404` status code
+   rather than an empty response object [GH-1365]
+ * CA certificates issued from the `pki` backend no longer have associated
+   leases, and any CA certs already issued will ignore revocation requests from
+   the lease manager. This is to prevent CA certificates from being revoked
+   when the token used to issue the certificate expires; it was not be obvious
+   to users that they need to ensure that the token lifetime needed to be at
+   least as long as a potentially very long-lived CA cert.
+
+FEATURES:
+
+ * **Azure Physical Backend**: You can now use Azure blob object storage as
+   your Vault physical data store [GH-1266]
+ * **Consul Backend Health Checks**: The Consul backend will automatically
+   register a `vault` service and perform its own health checking. By default
+   the active node can be found at `active.vault.service.consul` and all with
+   standby nodes are `standby.vault.service.consul`. Sealed vaults are marked
+   critical and are not listed by default in Consul's service discovery.  See
+   the documentation for details. [GH-1349]
+ * **Explicit Maximum Token TTLs using Token Roles**: If using token roles, you
+   can now set explicit maximum TTLs on tokens that do not honor changes in the
+   system- or mount-set values. This is useful, for instance, when the max TTL
+   of the system or the `auth/token` mount must be set high to accommodate
+   certain needs but you want more granular restrictions on tokens being issued
+   directly from `auth/token`. [GH-1399]
 
 IMPROVEMENTS:
 
- * credential/cert: Renewal requests are rejected if the set of policies has
-   changed since the token was issued [GH-477]
+ * audit: Add the DisplayName value to the copy of the Request object embedded
+   in the associated Response, to match the original Request object [GH-1387]
+ * command/auth: Restore the previous authenticated token if the `auth` command
+   fails to authenticate the provided token [GH-1233]
  * command/write: `-format` and `-field` can now be used with the `write`
    command [GH-1228]
+ * core: Add `mlock` support for FreeBSD, OpenBSD, and Darwin [GH-1297]
+ * core: Don't keep lease timers around when tokens are revoked [GH-1277]
+ * core: If using the `disable_cache` option, caches for the policy store and
+   the `transit` backend are now disabled as well [GH-1346]
+ * credential/cert: Renewal requests are rejected if the set of policies has
+   changed since the token was issued [GH-477]
+ * credential/cert: Check CRLs for specific non-CA certs configured in the
+   backend [GH-1404]
+ * credential/ldap: If `groupdn` is not configured, skip searching LDAP and
+   only return policies for local groups, plus a warning [GH-1283]
+ * credential/userpass: Add list support for users [GH-911]
+ * credential/userpass: Remove user configuration paths from requiring sudo, in
+   favor of normal ACL mechanisms [GH-1312]
+ * secret/aws: Use chain credentials to allow environment/EC2 instance/shared
+   providers [GH-307]
  * secret/pki: Added `exclude_cn_from_sans` field to prevent adding the CN to
    DNS or Email Subject Alternate Names [GH-1220]
- * sys/capabilities: Enforcing ACL checks for requests that query the capabilities
+ * sys/capabilities: Enforce ACL checks for requests that query the capabilities
    of a token on a given path [GH-1221]
- * command/auth: Restoring the previous authenticated token if the `auth` command
-   fails to authenticate the provided token [GH-1233]
+
+BUG FIXES:
+
+ * command/read: Fix panic when using `-field` with a non-string value [GH-1308]
+ * command/token-lookup: Fix TTL showing as 0 depending on how a token was
+   created. This only affected the value shown at lookup, not the token
+   behavior itself. [GH-1306]
+ * command/various: Tell the JSON decoder to not convert all numbers to floats;
+   fixes some various places where numbers were showing up in scientific
+   notation
+ * core: Properly persist mount-tuned TTLs for auth backends [GH-1371]
+ * core: Don't accidentally crosswire SIGINT to the reload handler [GH-1372]
+ * credential/github: Make organization comparison case-insensitive during
+   login [GH-1359]
+ * credential/ldap: Fix problem where certain error conditions when configuring
+   or opening LDAP connections would cause a panic instead of return a useful
+   error message [GH-1262]
+ * credential/token: Fall back to normal parent-token semantics if
+   `allowed_policies` is empty for a role. Using `allowed_policies` of
+   `default` resulted in the same behavior anyways. [GH-1276]
+ * credential/token: Fix issues renewing tokens when using the "suffix"
+   capability of token roles [GH-1331]
+ * credential/token: Fix lookup via POST showing the request token instead of
+   the desired token [GH-1354]
+ * credential/various: Fix renewal conditions when `default` policy is not
+   contained in the backend config [GH-1256]
+ * physical/s3: Don't panic in certain error cases from bad S3 responses [GH-1353]
+ * secret/pki: Don't check whether a certificate is destined to be a CA
+   certificate if sign-verbatim endpoint is used [GH-1250]
 
 ## 0.5.2 (March 16th, 2016)
 

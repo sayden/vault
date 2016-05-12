@@ -3,6 +3,7 @@ package vault
 import (
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/hashicorp/vault/logical"
@@ -14,8 +15,7 @@ var (
 	// protectedPaths cannot be accessed via the raw APIs.
 	// This is both for security and to prevent disrupting Vault.
 	protectedPaths = []string{
-		barrierInitPath,
-		keyringPath,
+		"core",
 	}
 )
 
@@ -83,6 +83,7 @@ func NewSystemBackend(core *Core, config *logical.BackendConfig) logical.Backend
 				HelpSynopsis:    strings.TrimSpace(sysHelp["capabilities"][0]),
 				HelpDescription: strings.TrimSpace(sysHelp["capabilities"][1]),
 			},
+
 			&framework.Path{
 				Pattern: "capabilities-self$",
 
@@ -106,13 +107,39 @@ func NewSystemBackend(core *Core, config *logical.BackendConfig) logical.Backend
 			},
 
 			&framework.Path{
+				Pattern:         "generate-root(/attempt)?$",
+				HelpSynopsis:    strings.TrimSpace(sysHelp["generate-root"][0]),
+				HelpDescription: strings.TrimSpace(sysHelp["generate-root"][1]),
+			},
+
+			&framework.Path{
+				Pattern:         "init$",
+				HelpSynopsis:    strings.TrimSpace(sysHelp["init"][0]),
+				HelpDescription: strings.TrimSpace(sysHelp["init"][1]),
+			},
+
+			&framework.Path{
 				Pattern: "rekey/backup$",
 
 				Fields: map[string]*framework.FieldSchema{},
 
 				Callbacks: map[logical.Operation]framework.OperationFunc{
-					logical.ReadOperation:   b.handleRekeyRetrieve,
-					logical.DeleteOperation: b.handleRekeyDelete,
+					logical.ReadOperation:   b.handleRekeyRetrieveBarrier,
+					logical.DeleteOperation: b.handleRekeyDeleteBarrier,
+				},
+
+				HelpSynopsis:    strings.TrimSpace(sysHelp["rekey_backup"][0]),
+				HelpDescription: strings.TrimSpace(sysHelp["rekey_backup"][0]),
+			},
+
+			&framework.Path{
+				Pattern: "rekey/recovery-key-backup$",
+
+				Fields: map[string]*framework.FieldSchema{},
+
+				Callbacks: map[logical.Operation]framework.OperationFunc{
+					logical.ReadOperation:   b.handleRekeyRetrieveRecovery,
+					logical.DeleteOperation: b.handleRekeyDeleteRecovery,
 				},
 
 				HelpSynopsis:    strings.TrimSpace(sysHelp["rekey_backup"][0]),
@@ -194,11 +221,11 @@ func NewSystemBackend(core *Core, config *logical.BackendConfig) logical.Backend
 				Fields: map[string]*framework.FieldSchema{
 					"from": &framework.FieldSchema{
 						Type:        framework.TypeString,
-						Description: strings.TrimSpace(sysHelp["remount_from"][0]),
+						Description: "The previous mount point.",
 					},
 					"to": &framework.FieldSchema{
 						Type:        framework.TypeString,
-						Description: strings.TrimSpace(sysHelp["remount_to"][0]),
+						Description: "The new mount point.",
 					},
 				},
 
@@ -358,6 +385,24 @@ func NewSystemBackend(core *Core, config *logical.BackendConfig) logical.Backend
 
 				HelpSynopsis:    strings.TrimSpace(sysHelp["policy"][0]),
 				HelpDescription: strings.TrimSpace(sysHelp["policy"][1]),
+			},
+
+			&framework.Path{
+				Pattern:         "seal-status$",
+				HelpSynopsis:    strings.TrimSpace(sysHelp["seal-status"][0]),
+				HelpDescription: strings.TrimSpace(sysHelp["seal-status"][1]),
+			},
+
+			&framework.Path{
+				Pattern:         "seal$",
+				HelpSynopsis:    strings.TrimSpace(sysHelp["seal"][0]),
+				HelpDescription: strings.TrimSpace(sysHelp["seal"][1]),
+			},
+
+			&framework.Path{
+				Pattern:         "unseal$",
+				HelpSynopsis:    strings.TrimSpace(sysHelp["unseal"][0]),
+				HelpDescription: strings.TrimSpace(sysHelp["unseal"][1]),
 			},
 
 			&framework.Path{
@@ -522,8 +567,10 @@ func (b *SystemBackend) handleCapabilitiesAccessor(req *logical.Request, d *fram
 // handleRekeyRetrieve returns backed-up, PGP-encrypted unseal keys from a
 // rekey operation
 func (b *SystemBackend) handleRekeyRetrieve(
-	req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	backup, err := b.Core.RekeyRetrieveBackup()
+	req *logical.Request,
+	data *framework.FieldData,
+	recovery bool) (*logical.Response, error) {
+	backup, err := b.Core.RekeyRetrieveBackup(recovery)
 	if err != nil {
 		return nil, fmt.Errorf("unable to look up backed-up keys: %v", err)
 	}
@@ -542,16 +589,37 @@ func (b *SystemBackend) handleRekeyRetrieve(
 	return resp, nil
 }
 
+func (b *SystemBackend) handleRekeyRetrieveBarrier(
+	req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+	return b.handleRekeyRetrieve(req, data, false)
+}
+
+func (b *SystemBackend) handleRekeyRetrieveRecovery(
+	req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+	return b.handleRekeyRetrieve(req, data, true)
+}
+
 // handleRekeyDelete deletes backed-up, PGP-encrypted unseal keys from a rekey
 // operation
 func (b *SystemBackend) handleRekeyDelete(
-	req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	err := b.Core.RekeyDeleteBackup()
+	req *logical.Request,
+	data *framework.FieldData,
+	recovery bool) (*logical.Response, error) {
+	err := b.Core.RekeyDeleteBackup(recovery)
 	if err != nil {
 		return nil, fmt.Errorf("error during deletion of backed-up keys: %v", err)
 	}
 
 	return nil, nil
+}
+func (b *SystemBackend) handleRekeyDeleteBarrier(
+	req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+	return b.handleRekeyDelete(req, data, false)
+}
+
+func (b *SystemBackend) handleRekeyDeleteRecovery(
+	req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+	return b.handleRekeyDelete(req, data, true)
 }
 
 // handleMountTable handles the "mounts" endpoint to provide the mount table
@@ -778,6 +846,14 @@ func (b *SystemBackend) handleMountTuneWrite(
 		return handleError(err)
 	}
 
+	var lock *sync.RWMutex
+	switch {
+	case strings.HasPrefix(path, "auth/"):
+		lock = &b.Core.authLock
+	default:
+		lock = &b.Core.mountsLock
+	}
+
 	// Timing configuration parameters
 	{
 		var newDefault, newMax *time.Duration
@@ -810,8 +886,9 @@ func (b *SystemBackend) handleMountTuneWrite(
 		}
 
 		if newDefault != nil || newMax != nil {
-			b.Core.mountsLock.Lock()
-			defer b.Core.mountsLock.Unlock()
+			lock.Lock()
+			defer lock.Unlock()
+
 			if err := b.tuneMountTTLs(path, &mountEntry.Config, newDefault, newMax); err != nil {
 				b.Backend.Logger().Printf("[ERR] sys: tune of path '%s' failed: %v", path, err)
 				return handleError(err)
@@ -1255,11 +1332,86 @@ as well as perform core operations.
 
 // sysHelp is all the help text for the sys backend.
 var sysHelp = map[string][2]string{
+	"init": {
+		"Initializes or returns the initialization status of the Vault.",
+		`
+This path responds to the following HTTP methods.
+
+    GET /
+        Returns the initialization status of the Vault.
+
+    POST /
+        Initializes a new vault.
+		`,
+	},
+	"generate-root": {
+		"Reads, generates, or deletes a root token regeneration process.",
+		`
+This path responds to multiple HTTP methods which change the behavior. Those
+HTTP methods are listed below.
+
+    GET /attempt
+        Reads the configuration and progress of the current root generation
+        attempt.
+
+    POST /attempt
+        Initializes a new root generation attempt. Only a single root generation
+        attempt can take place at a time. One (and only one) of otp or pgp_key
+        are required.
+
+    DELETE /attempt
+        Cancels any in-progress root generation attempt. This clears any
+        progress made. This must be called to change the OTP or PGP key being
+        used.
+		`,
+	},
+	"seal-status": {
+		"Returns the seal status of the Vault.",
+		`
+This path responds to the following HTTP methods.
+
+    GET /
+        Returns the seal status of the Vault. This is an unauthenticated
+        endpoint.
+		`,
+	},
+	"seal": {
+		"Seals the Vault.",
+		`
+This path responds to the following HTTP methods.
+
+    PUT /
+        Seals the Vault.
+		`,
+	},
+	"unseal": {
+		"Unseals the Vault.",
+		`
+This path responds to the following HTTP methods.
+
+    PUT /
+        Unseals the Vault.
+		`,
+	},
 	"mounts": {
 		"List the currently mounted backends.",
 		`
-List the currently mounted backends: the mount path, the type of the backend,
-and a user friendly description of the purpose for the mount.
+This path responds to the following HTTP methods.
+
+    GET /
+        Lists all the mounted secret backends.
+
+    GET /<mount point>
+        Get information about the mount at the specified path.
+
+    POST /<mount point>
+        Mount a new secret backend to the mount point in the URL.
+
+    POST /<mount point>/tune
+        Tune configuration parameters for the given mount point.
+
+    DELETE /<mount point>
+        Unmount the specified mount point.
 		`,
 	},
 
@@ -1304,18 +1456,11 @@ and max_lease_ttl.`,
 	"remount": {
 		"Move the mount point of an already-mounted backend.",
 		`
-Change the mount point of an already-mounted backend.
+This path responds to the following HTTP methods.
+
+    POST /sys/remount
+        Changes the mount point of an already-mounted backend.
 		`,
-	},
-
-	"remount_from": {
-		"",
-		"",
-	},
-
-	"remount_to": {
-		"",
-		"",
 	},
 
 	"mount_tune": {
@@ -1389,8 +1534,18 @@ of external secrets. Access to this prefix should be tightly controlled.
 	"auth-table": {
 		"List the currently enabled credential backends.",
 		`
-List the currently enabled credential backends: the name, the type of the backend,
-and a user friendly description of the purpose for the credential backend.
+This path responds to the following HTTP methods.
+
+    GET /
+        List the currently enabled credential backends: the name, the type of
+        the backend, and a user friendly description of the purpose for the
+        credential backend.
+
+    POST /<mount point>
+        Enable a new auth backend.
+
+    DELETE /<mount point>
+        Disable the auth backend at the given mount point.
 		`,
 	},
 
@@ -1421,8 +1576,19 @@ Example: you might have an OAuth backend for GitHub, and one for Google Apps.
 	"policy-list": {
 		`List the configured access control policies.`,
 		`
-List the names of the configured access control policies. Policies are associated
-with client tokens to limit access to keys in the Vault.
+This path responds to the following HTTP methods.
+
+    GET /
+        List the names of the configured access control policies.
+
+    GET /<name>
+        Retrieve the rules for the named policy.
+
+    PUT /<name>
+        Add or update a policy.
+
+    DELETE /<name>
+        Delete the policy with the given name.
 		`,
 	},
 
@@ -1452,8 +1618,16 @@ or delete a policy.
 	"audit-table": {
 		"List the currently enabled audit backends.",
 		`
-List the currently enabled audit backends: the name, the type of the backend,
-a user friendly description of the audit backend, and it's configuration options.
+This path responds to the following HTTP methods.
+
+    GET /
+        List the currently enabled audit backends.
+
+    PUT /<path>
+        Enable an audit backend at the given path.
+
+    DELETE /<path>
+        Disable the given audit backend.
 		`,
 	},
 

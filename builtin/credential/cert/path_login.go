@@ -7,10 +7,10 @@ import (
 	"encoding/base64"
 	"encoding/pem"
 	"errors"
-	"sort"
 	"strings"
 
 	"github.com/hashicorp/vault/helper/certutil"
+	"github.com/hashicorp/vault/helper/policyutil"
 	"github.com/hashicorp/vault/logical"
 	"github.com/hashicorp/vault/logical/framework"
 )
@@ -59,16 +59,12 @@ func (b *backend) pathLogin(
 	skid := base64.StdEncoding.EncodeToString(clientCerts[0].SubjectKeyId)
 	akid := base64.StdEncoding.EncodeToString(clientCerts[0].AuthorityKeyId)
 
-	// We want to sort here so we can check properly during renewal)
-	sort.Strings(matched.Entry.Policies)
-
 	// Generate a response
 	resp := &logical.Response{
 		Auth: &logical.Auth{
 			InternalData: map[string]interface{}{
 				"subject_key_id":   skid,
 				"authority_key_id": akid,
-				"policies":         strings.Join(matched.Entry.Policies, ","),
 			},
 			Policies:    matched.Entry.Policies,
 			DisplayName: matched.Entry.DisplayName,
@@ -132,9 +128,7 @@ func (b *backend) pathLoginRenew(
 		return nil, nil
 	}
 
-	policies := cert.Policies
-	sort.Strings(policies)
-	if strings.Join(policies, ",") != req.Auth.InternalData["policies"] {
+	if !policyutil.EquivalentPolicies(cert.Policies, req.Auth.Policies) {
 		return logical.ErrorResponse("policies have changed, not renewing"), nil
 	}
 
@@ -155,7 +149,7 @@ func (b *backend) verifyCredentials(req *logical.Request) (*ParsedCert, *logical
 	// with the backend.
 	if len(trustedNonCAs) != 0 {
 		policy := b.matchNonCAPolicy(connState.PeerCertificates[0], trustedNonCAs)
-		if policy != nil {
+		if policy != nil && !b.checkForChainInCRLs(policy.Certificates) {
 			return policy, nil, nil
 		}
 	}
@@ -171,7 +165,7 @@ func (b *backend) verifyCredentials(req *logical.Request) (*ParsedCert, *logical
 		return nil, logical.ErrorResponse("invalid certificate or no client certificate supplied"), nil
 	}
 
-	validChain := b.checkForValidChain(req.Storage, trustedChains)
+	validChain := b.checkForValidChain(trustedChains)
 	if !validChain {
 		return nil, logical.ErrorResponse(
 			"no chain containing non-revoked certificates could be found for this login certificate",
@@ -251,18 +245,21 @@ func (b *backend) loadTrustedCerts(store logical.Storage) (pool *x509.CertPool, 
 	return
 }
 
-func (b *backend) checkForValidChain(store logical.Storage, chains [][]*x509.Certificate) bool {
-	var badChain bool
-	for _, chain := range chains {
-		badChain = false
-		for _, cert := range chain {
-			badCRLs := b.findSerialInCRLs(cert.SerialNumber)
-			if len(badCRLs) != 0 {
-				badChain = true
-				break
-			}
+func (b *backend) checkForChainInCRLs(chain []*x509.Certificate) bool {
+	badChain := false
+	for _, cert := range chain {
+		badCRLs := b.findSerialInCRLs(cert.SerialNumber)
+		if len(badCRLs) != 0 {
+			badChain = true
+			break
 		}
-		if !badChain {
+	}
+	return badChain
+}
+
+func (b *backend) checkForValidChain(chains [][]*x509.Certificate) bool {
+	for _, chain := range chains {
+		if !b.checkForChainInCRLs(chain) {
 			return true
 		}
 	}

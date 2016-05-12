@@ -3,6 +3,7 @@ package github
 import (
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -47,8 +48,9 @@ func TestBackend_Config(t *testing.T) {
 	}
 
 	logicaltest.Test(t, logicaltest.TestCase{
-		PreCheck: func() { testAccPreCheck(t) },
-		Backend:  b,
+		AcceptanceTest: true,
+		PreCheck:       func() { testAccPreCheck(t) },
+		Backend:        b,
 		Steps: []logicaltest.TestStep{
 			testConfigWrite(t, config_data1),
 			testLoginWrite(t, login_data, expectedTTL1.Nanoseconds(), false),
@@ -103,10 +105,15 @@ func TestBackend_basic(t *testing.T) {
 	}
 
 	logicaltest.Test(t, logicaltest.TestCase{
-		PreCheck: func() { testAccPreCheck(t) },
-		Backend:  b,
+		AcceptanceTest: true,
+		PreCheck:       func() { testAccPreCheck(t) },
+		Backend:        b,
 		Steps: []logicaltest.TestStep{
-			testAccStepConfig(t),
+			testAccStepConfig(t, false),
+			testAccMap(t, "default", "root"),
+			testAccMap(t, "oWnErs", "root"),
+			testAccLogin(t, []string{"root"}),
+			testAccStepConfig(t, true),
 			testAccMap(t, "default", "root"),
 			testAccMap(t, "oWnErs", "root"),
 			testAccLogin(t, []string{"root"}),
@@ -132,14 +139,18 @@ func testAccPreCheck(t *testing.T) {
 	}
 }
 
-func testAccStepConfig(t *testing.T) logicaltest.TestStep {
-	return logicaltest.TestStep{
+func testAccStepConfig(t *testing.T, upper bool) logicaltest.TestStep {
+	ts := logicaltest.TestStep{
 		Operation: logical.UpdateOperation,
 		Path:      "config",
 		Data: map[string]interface{}{
 			"organization": os.Getenv("GITHUB_ORG"),
 		},
 	}
+	if upper {
+		ts.Data["organization"] = strings.ToUpper(os.Getenv("GITHUB_ORG"))
+	}
+	return ts
 }
 
 func testAccStepConfigWithBaseURL(t *testing.T) logicaltest.TestStep {
