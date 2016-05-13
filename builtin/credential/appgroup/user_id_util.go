@@ -21,9 +21,7 @@ const (
 )
 
 type userIDStorageEntry struct {
-	NumUses int           `json:"num_uses" structs:"num_uses" mapstructure:"num_uses"`
-	TTL     time.Duration `json:"ttl" structs:"ttl" mapstructure:"ttl"`
-	MaxTTL  time.Duration `json:"max_ttl" structs:"max_ttl" mapstructure:"max_ttl"`
+	NumUses int `json:"num_uses" structs:"num_uses" mapstructure:"num_uses"`
 }
 
 type validationResponse struct {
@@ -91,8 +89,8 @@ func (b *backend) validateSelector(s logical.Storage, selectorType, selectorValu
 			return nil, fmt.Errorf("app referred by the user ID does not exist")
 		}
 		resp.Policies = app.Policies
-		resp.TTL = app.TTL
-		resp.MaxTTL = app.MaxTTL
+		resp.TTL = app.TokenTTL
+		resp.MaxTTL = app.TokenMaxTTL
 		resp.Wrapped = app.Wrapped
 	case selectorTypeGroup:
 		group, err := b.groupEntry(s, selectorValue)

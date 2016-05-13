@@ -13,11 +13,12 @@ import (
 )
 
 type appStorageEntry struct {
-	Policies []string      `json:"policies" structs:"policies" mapstructure:"policies"`
-	NumUses  int           `json:"num_uses" structs:"num_uses" mapstructure:"num_uses"`
-	TTL      time.Duration `json:"ttl" structs:"ttl" mapstructure:"ttl"`
-	MaxTTL   time.Duration `json:"max_ttl" structs:"max_ttl" mapstructure:"max_ttl"`
-	Wrapped  time.Duration `json:"wrapped" structs:"wrapped" mapstructure:"wrapped"`
+	Policies    []string      `json:"policies" structs:"policies" mapstructure:"policies"`
+	NumUses     int           `json:"num_uses" structs:"num_uses" mapstructure:"num_uses"`
+	UserIDTTL   time.Duration `json:"userid_ttl" structs:"userid_ttl" mapstructure:"userid_ttl"`
+	TokenTTL    time.Duration `json:"token_ttl" structs:"token_ttl" mapstructure:"token_ttl"`
+	TokenMaxTTL time.Duration `json:"token_max_ttl" structs:"token_max_ttl" mapstructure:"token_max_ttl"`
+	Wrapped     time.Duration `json:"wrapped" structs:"wrapped" mapstructure:"wrapped"`
 }
 
 func appPaths(b *backend) []*framework.Path {
@@ -38,11 +39,16 @@ func appPaths(b *backend) []*framework.Path {
 					Type:        framework.TypeInt,
 					Description: "Number of times the a UserID can access the App, after which it will expire.",
 				},
-				"ttl": &framework.FieldSchema{
+				"userid_ttl": &framework.FieldSchema{
+					Type:        framework.TypeDurationSecond,
+					Default:     259200, //72h
+					Description: "Duration in seconds after which the issued UserID should expire.",
+				},
+				"token_ttl": &framework.FieldSchema{
 					Type:        framework.TypeDurationSecond,
 					Description: "Duration in seconds after which the issued token should expire.",
 				},
-				"max_ttl": &framework.FieldSchema{
+				"token_max_ttl": &framework.FieldSchema{
 					Type:        framework.TypeDurationSecond,
 					Description: "Duration in seconds after which the issued token should not be allowed to be renewed.",
 				},
@@ -105,44 +111,64 @@ value of 'wrapped' is the duration after which the returned token expires.
 			HelpDescription: strings.TrimSpace(appHelp["app-num-uses"][1]),
 		},
 		&framework.Path{
-			Pattern: "app/" + framework.GenericNameRegex("app_name") + "/ttl$",
+			Pattern: "app/" + framework.GenericNameRegex("app_name") + "/userid-ttl$",
 			Fields: map[string]*framework.FieldSchema{
 				"app_name": &framework.FieldSchema{
 					Type:        framework.TypeString,
 					Description: "Name of the App.",
 				},
-				"ttl": &framework.FieldSchema{
+				"userid_ttl": &framework.FieldSchema{
+					Type:        framework.TypeDurationSecond,
+					Description: "Duration in seconds after which the issued UserID should expire.",
+				},
+			},
+			Callbacks: map[logical.Operation]framework.OperationFunc{
+				logical.UpdateOperation: b.pathAppUserIDTTLUpdate,
+				logical.ReadOperation:   b.pathAppUserIDTTLRead,
+				logical.DeleteOperation: b.pathAppUserIDTTLDelete,
+			},
+			HelpSynopsis:    strings.TrimSpace(appHelp["app-userid-ttl"][0]),
+			HelpDescription: strings.TrimSpace(appHelp["app-userid-ttl"][1]),
+		},
+		&framework.Path{
+			Pattern: "app/" + framework.GenericNameRegex("app_name") + "/token-ttl$",
+			Fields: map[string]*framework.FieldSchema{
+				"app_name": &framework.FieldSchema{
+					Type:        framework.TypeString,
+					Description: "Name of the App.",
+				},
+				"token_ttl": &framework.FieldSchema{
 					Type:        framework.TypeDurationSecond,
 					Description: "Duration in seconds after which the issued token should expire.",
 				},
 			},
 			Callbacks: map[logical.Operation]framework.OperationFunc{
-				logical.UpdateOperation: b.pathAppTTLUpdate,
-				logical.ReadOperation:   b.pathAppTTLRead,
-				logical.DeleteOperation: b.pathAppTTLDelete,
+				logical.UpdateOperation: b.pathAppTokenTTLUpdate,
+				logical.ReadOperation:   b.pathAppTokenTTLRead,
+				logical.DeleteOperation: b.pathAppTokenTTLDelete,
 			},
-			HelpSynopsis:    strings.TrimSpace(appHelp["app-ttl"][0]),
-			HelpDescription: strings.TrimSpace(appHelp["app-ttl"][1]),
+			HelpSynopsis:    strings.TrimSpace(appHelp["app-token-ttl"][0]),
+			HelpDescription: strings.TrimSpace(appHelp["app-token-ttl"][1]),
 		},
 		&framework.Path{
-			Pattern: "app/" + framework.GenericNameRegex("app_name") + "/max-ttl$",
+			Pattern: "app/" + framework.GenericNameRegex("app_name") + "/token-max-ttl$",
 			Fields: map[string]*framework.FieldSchema{
 				"app_name": &framework.FieldSchema{
 					Type:        framework.TypeString,
 					Description: "Name of the App.",
 				},
-				"max_ttl": &framework.FieldSchema{
+				"token_max_ttl": &framework.FieldSchema{
 					Type:        framework.TypeDurationSecond,
 					Description: "Duration in seconds after which the issued token should not be allowed to be renewed.",
 				},
 			},
 			Callbacks: map[logical.Operation]framework.OperationFunc{
-				logical.UpdateOperation: b.pathAppMaxTTLUpdate,
-				logical.ReadOperation:   b.pathAppMaxTTLRead,
-				logical.DeleteOperation: b.pathAppMaxTTLDelete,
+				logical.UpdateOperation: b.pathAppTokenMaxTTLUpdate,
+				logical.ReadOperation:   b.pathAppTokenMaxTTLRead,
+				logical.DeleteOperation: b.pathAppTokenMaxTTLDelete,
 			},
-			HelpSynopsis:    strings.TrimSpace(appHelp["app-max-ttl"][0]),
-			HelpDescription: strings.TrimSpace(appHelp["app-max-ttl"][1]),
+			HelpSynopsis:    strings.TrimSpace(appHelp["app-token-max-ttl"][0]),
+			HelpDescription: strings.TrimSpace(appHelp["app-token-max-ttl"][1]),
 		},
 		&framework.Path{
 			Pattern: "app/" + framework.GenericNameRegex("app_name") + "/wrapped$",
@@ -246,15 +272,11 @@ func (b *backend) pathAppCreateUpdate(req *logical.Request, data *framework.Fiel
 		return logical.ErrorResponse("missing app_name"), nil
 	}
 
-	// Check if there is already an entry. If entry exists, this is an
-	// UpdateOperation.
+	// Fetch or create an entry for the app
 	app, err := b.appEntry(req.Storage, appName)
 	if err != nil {
 		return nil, err
 	}
-
-	// If entry does not exist, this is a CreateOperation. So, create
-	// a new object.
 	if app == nil {
 		app = &appStorageEntry{}
 	}
@@ -265,36 +287,38 @@ func (b *backend) pathAppCreateUpdate(req *logical.Request, data *framework.Fiel
 		app.Policies = policyutil.ParsePolicies(data.Get("policies").(string))
 	}
 
-	// Update only if value is supplied. Defaults to zero.
 	if numUsesRaw, ok := data.GetOk("num_uses"); ok {
 		app.NumUses = numUsesRaw.(int)
+	} else if req.Operation == logical.CreateOperation {
+		app.NumUses = data.Get("num_uses").(int)
 	}
-
 	if app.NumUses < 0 {
 		return logical.ErrorResponse("num_uses cannot be negative"), nil
 	}
 
-	// If TTL value is not provided either during update or create, don't bother.
-	// Core will set the system default value if the policies does not contain
-	// "root" and if TTL value is zero.
-	//
-	// Update only if value is supplied. Defaults to zero.
-	if ttlRaw, ok := data.GetOk("ttl"); ok {
-		app.TTL = time.Duration(ttlRaw.(int)) * time.Second
+	if userIDTTLRaw, ok := data.GetOk("userid_ttl"); ok {
+		app.UserIDTTL = time.Second * time.Duration(userIDTTLRaw.(int))
+	} else if req.Operation == logical.CreateOperation {
+		app.UserIDTTL = time.Second * time.Duration(data.Get("userid_ttl").(int))
 	}
 
-	// Update only if value is supplied. Defaults to zero.
-	if maxTTLRaw, ok := data.GetOk("max_ttl"); ok {
-		app.MaxTTL = time.Duration(maxTTLRaw.(int)) * time.Second
+	if tokenTTLRaw, ok := data.GetOk("token_ttl"); ok {
+		app.TokenTTL = time.Second * time.Duration(tokenTTLRaw.(int))
+	} else if req.Operation == logical.CreateOperation {
+		app.TokenTTL = time.Second * time.Duration(data.Get("token_ttl").(int))
 	}
 
-	// Check that TTL value provided is less than MaxTTL.
-	//
-	// Do not sanitize the TTL and MaxTTL now, just store them as-is.
-	// Check the System TTL and MaxTTL values at credential issue time
-	// and act accordingly.
-	if app.TTL > app.MaxTTL {
-		return logical.ErrorResponse("ttl should not be greater than max_ttl"), nil
+	if tokenMaxTTLRaw, ok := data.GetOk("token_max_ttl"); ok {
+		app.TokenMaxTTL = time.Second * time.Duration(tokenMaxTTLRaw.(int))
+	} else if req.Operation == logical.CreateOperation {
+		app.TokenMaxTTL = time.Second * time.Duration(data.Get("token_max_ttl").(int))
+	}
+
+	// Check that the TokenMaxTTL value provided is less than the TokenMaxTTL.
+	// Sanitizing the TTL and MaxTTL is not required now and can be performed
+	// at credential issue time.
+	if app.TokenTTL > app.TokenMaxTTL {
+		return logical.ErrorResponse("token_ttl should not be greater than token_max_ttl"), nil
 	}
 
 	// Update only if value is supplied. Defaults to zero.
@@ -318,8 +342,9 @@ func (b *backend) pathAppRead(req *logical.Request, data *framework.FieldData) (
 		return nil, nil
 	} else {
 		// Convert the 'time.Duration' values to second.
-		app.TTL = app.TTL / time.Second
-		app.MaxTTL = app.MaxTTL / time.Second
+		app.UserIDTTL = app.UserIDTTL / time.Second
+		app.TokenTTL = app.TokenTTL / time.Second
+		app.TokenMaxTTL = app.TokenMaxTTL / time.Second
 		app.Wrapped = app.Wrapped / time.Second
 
 		return &logical.Response{
@@ -462,7 +487,7 @@ func (b *backend) pathAppNumUsesDelete(req *logical.Request, data *framework.Fie
 	return nil, b.setAppEntry(req.Storage, appName, app)
 }
 
-func (b *backend) pathAppTTLUpdate(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+func (b *backend) pathAppUserIDTTLUpdate(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
 	appName := data.Get("app_name").(string)
 	if appName == "" {
 		return logical.ErrorResponse("missing app_name"), nil
@@ -476,17 +501,15 @@ func (b *backend) pathAppTTLUpdate(req *logical.Request, data *framework.FieldDa
 		return nil, nil
 	}
 
-	if ttlRaw, ok := data.GetOk("ttl"); ok {
-		if app.TTL = time.Duration(ttlRaw.(int)) * time.Second; app.TTL > app.MaxTTL {
-			return logical.ErrorResponse("ttl should not be greater than max_ttl"), nil
-		}
+	if userIDTTLRaw, ok := data.GetOk("userid_ttl"); ok {
+		app.UserIDTTL = time.Second * time.Duration(userIDTTLRaw.(int))
 		return nil, b.setAppEntry(req.Storage, appName, app)
 	} else {
-		return logical.ErrorResponse("missing ttl"), nil
+		return logical.ErrorResponse("missing userid_ttl"), nil
 	}
 }
 
-func (b *backend) pathAppTTLRead(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+func (b *backend) pathAppUserIDTTLRead(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
 	appName := data.Get("app_name").(string)
 	if appName == "" {
 		return logical.ErrorResponse("missing app_name"), nil
@@ -497,16 +520,16 @@ func (b *backend) pathAppTTLRead(req *logical.Request, data *framework.FieldData
 	} else if app == nil {
 		return nil, nil
 	} else {
-		app.TTL = app.TTL / time.Second
+		app.UserIDTTL = app.UserIDTTL / time.Second
 		return &logical.Response{
 			Data: map[string]interface{}{
-				"ttl": app.TTL,
+				"userid_ttl": app.UserIDTTL,
 			},
 		}, nil
 	}
 }
 
-func (b *backend) pathAppTTLDelete(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+func (b *backend) pathAppUserIDTTLDelete(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
 	appName := data.Get("app_name").(string)
 	if appName == "" {
 		return logical.ErrorResponse("missing app_name"), nil
@@ -521,12 +544,12 @@ func (b *backend) pathAppTTLDelete(req *logical.Request, data *framework.FieldDa
 	}
 
 	// Deleting a field means resetting the value in the entry.
-	app.TTL = (&appStorageEntry{}).TTL
+	app.UserIDTTL = (&appStorageEntry{}).UserIDTTL
 
 	return nil, b.setAppEntry(req.Storage, appName, app)
 }
 
-func (b *backend) pathAppMaxTTLUpdate(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+func (b *backend) pathAppTokenTTLUpdate(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
 	appName := data.Get("app_name").(string)
 	if appName == "" {
 		return logical.ErrorResponse("missing app_name"), nil
@@ -540,17 +563,17 @@ func (b *backend) pathAppMaxTTLUpdate(req *logical.Request, data *framework.Fiel
 		return nil, nil
 	}
 
-	if maxTTLRaw, ok := data.GetOk("max_ttl"); ok {
-		if app.MaxTTL = time.Duration(maxTTLRaw.(int)) * time.Second; app.TTL > app.MaxTTL {
-			return logical.ErrorResponse("max_ttl should be greater than or equal to ttl"), nil
+	if tokenTTLRaw, ok := data.GetOk("token_ttl"); ok {
+		if app.TokenTTL = time.Second * time.Duration(tokenTTLRaw.(int)); app.TokenTTL > app.TokenMaxTTL {
+			return logical.ErrorResponse("token_ttl should not be greater than token_max_ttl"), nil
 		}
 		return nil, b.setAppEntry(req.Storage, appName, app)
 	} else {
-		return logical.ErrorResponse("missing max_ttl"), nil
+		return logical.ErrorResponse("missing token_ttl"), nil
 	}
 }
 
-func (b *backend) pathAppMaxTTLRead(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+func (b *backend) pathAppTokenTTLRead(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
 	appName := data.Get("app_name").(string)
 	if appName == "" {
 		return logical.ErrorResponse("missing app_name"), nil
@@ -561,16 +584,16 @@ func (b *backend) pathAppMaxTTLRead(req *logical.Request, data *framework.FieldD
 	} else if app == nil {
 		return nil, nil
 	} else {
-		app.MaxTTL = app.MaxTTL / time.Second
+		app.TokenTTL = app.TokenTTL / time.Second
 		return &logical.Response{
 			Data: map[string]interface{}{
-				"max_ttl": app.MaxTTL,
+				"token_ttl": app.TokenTTL,
 			},
 		}, nil
 	}
 }
 
-func (b *backend) pathAppMaxTTLDelete(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+func (b *backend) pathAppTokenTTLDelete(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
 	appName := data.Get("app_name").(string)
 	if appName == "" {
 		return logical.ErrorResponse("missing app_name"), nil
@@ -585,7 +608,71 @@ func (b *backend) pathAppMaxTTLDelete(req *logical.Request, data *framework.Fiel
 	}
 
 	// Deleting a field means resetting the value in the entry.
-	app.MaxTTL = (&appStorageEntry{}).MaxTTL
+	app.TokenTTL = (&appStorageEntry{}).TokenTTL
+
+	return nil, b.setAppEntry(req.Storage, appName, app)
+}
+
+func (b *backend) pathAppTokenMaxTTLUpdate(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+	appName := data.Get("app_name").(string)
+	if appName == "" {
+		return logical.ErrorResponse("missing app_name"), nil
+	}
+
+	app, err := b.appEntry(req.Storage, strings.ToLower(appName))
+	if err != nil {
+		return nil, err
+	}
+	if app == nil {
+		return nil, nil
+	}
+
+	if tokenMaxTTLRaw, ok := data.GetOk("token_max_ttl"); ok {
+		if app.TokenMaxTTL = time.Second * time.Duration(tokenMaxTTLRaw.(int)); app.TokenTTL > app.TokenMaxTTL {
+			return logical.ErrorResponse("token_max_ttl should be greater than or equal to token_ttl"), nil
+		}
+		return nil, b.setAppEntry(req.Storage, appName, app)
+	} else {
+		return logical.ErrorResponse("missing token_max_ttl"), nil
+	}
+}
+
+func (b *backend) pathAppTokenMaxTTLRead(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+	appName := data.Get("app_name").(string)
+	if appName == "" {
+		return logical.ErrorResponse("missing app_name"), nil
+	}
+
+	if app, err := b.appEntry(req.Storage, strings.ToLower(appName)); err != nil {
+		return nil, err
+	} else if app == nil {
+		return nil, nil
+	} else {
+		app.TokenMaxTTL = app.TokenMaxTTL / time.Second
+		return &logical.Response{
+			Data: map[string]interface{}{
+				"token_max_ttl": app.TokenMaxTTL,
+			},
+		}, nil
+	}
+}
+
+func (b *backend) pathAppTokenMaxTTLDelete(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+	appName := data.Get("app_name").(string)
+	if appName == "" {
+		return logical.ErrorResponse("missing app_name"), nil
+	}
+
+	app, err := b.appEntry(req.Storage, strings.ToLower(appName))
+	if err != nil {
+		return nil, err
+	}
+	if app == nil {
+		return nil, nil
+	}
+
+	// Deleting a field means resetting the value in the entry.
+	app.TokenMaxTTL = (&appStorageEntry{}).TokenMaxTTL
 
 	return nil, b.setAppEntry(req.Storage, appName, app)
 }
@@ -702,8 +789,9 @@ var appHelp = map[string][2]string{
 	"app":                {"help", "desc"},
 	"app-policies":       {"help", "desc"},
 	"app-num-uses":       {"help", "desc"},
-	"app-ttl":            {"help", "desc"},
-	"app-max-ttl":        {"help", "desc"},
+	"app-userid-ttl":     {"help", "desc"},
+	"app-token-ttl":      {"help", "desc"},
+	"app-token-max-ttl":  {"help", "desc"},
 	"app-wrapped":        {"help", "desc"},
 	"app-creds":          {"help", "desc"},
 	"app-creds-specific": {"help", "desc"},
