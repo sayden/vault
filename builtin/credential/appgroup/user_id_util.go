@@ -106,8 +106,8 @@ func (b *backend) validateSelector(s logical.Storage, selectorType, selectorValu
 		}
 		resp.Policies = append(resp.Policies, groupPolicies...)
 		resp.Policies = append(resp.Policies, group.AdditionalPolicies...)
-		resp.TTL = group.TTL
-		resp.MaxTTL = group.MaxTTL
+		resp.TTL = group.TokenTTL
+		resp.MaxTTL = group.TokenMaxTTL
 		resp.Wrapped = group.Wrapped
 	case selectorTypeGeneric:
 		generic, err := b.genericEntry(s, selectorValue)
