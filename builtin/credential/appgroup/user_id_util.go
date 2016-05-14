@@ -138,8 +138,8 @@ func (b *backend) validateSelector(s logical.Storage, selectorType, selectorValu
 			resp.Policies = append(resp.Policies, app.Policies...)
 		}
 		resp.Policies = append(resp.Policies, generic.AdditionalPolicies...)
-		resp.TTL = generic.TTL
-		resp.MaxTTL = generic.MaxTTL
+		resp.TTL = generic.TokenTTL
+		resp.MaxTTL = generic.TokenMaxTTL
 		resp.Wrapped = generic.Wrapped
 	default:
 		return nil, fmt.Errorf("unknown selector type")

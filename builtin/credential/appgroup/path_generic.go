@@ -1,7 +1,6 @@
 package appgroup
 
 import (
-	"encoding/base64"
 	"fmt"
 	"strings"
 	"time"
@@ -17,8 +16,9 @@ type genericStorageEntry struct {
 	Groups             []string      `json:"groups" structs:"groups" mapstructure:"groups"`
 	Apps               []string      `json:"apps" structs:"apps" mapstructure:"apps"`
 	NumUses            int           `json:"num_uses" structs:"num_uses" mapstructure:"num_uses"`
-	TTL                time.Duration `json:"ttl" structs:"ttl" mapstructure:"ttl"`
-	MaxTTL             time.Duration `json:"max_ttl" structs:"max_ttl" mapstructure:"max_ttl"`
+	UserIDTTL          time.Duration `json:"userid_ttl" structs:"userid_ttl" mapstructure:"userid_ttl"`
+	TokenTTL           time.Duration `json:"token_ttl" structs:"token_ttl" mapstructure:"token_ttl"`
+	TokenMaxTTL        time.Duration `json:"token_max_ttl" structs:"token_max_ttl" mapstructure:"token_max_ttl"`
 	Wrapped            time.Duration `json:"wrapped" structs:"wrapped" mapstructure:"wrapped"`
 	AdditionalPolicies []string      `json:"additional_policies" structs:"additional_policies" mapstructure:"additional_policies"`
 }
@@ -50,13 +50,17 @@ addition to those, a set of policies can be assigned using this.
 					Type:        framework.TypeInt,
 					Description: "Number of times the a UserID can access the Apps represented by the Group.",
 				},
-				"ttl": &framework.FieldSchema{
+				"userid_ttl": &framework.FieldSchema{
 					Type:        framework.TypeDurationSecond,
-					Description: "Duration in seconds after which a UserID should expire.",
+					Description: "Duration in seconds after which the issued UserID should expire.",
 				},
-				"max_ttl": &framework.FieldSchema{
+				"token_ttl": &framework.FieldSchema{
 					Type:        framework.TypeDurationSecond,
-					Description: "MaxTTL of the UserID created on the App.",
+					Description: "Duration in seconds after which the issued token should expire.",
+				},
+				"token_max_ttl": &framework.FieldSchema{
+					Type:        framework.TypeDurationSecond,
+					Description: "Duration in seconds after which the issued token should not be allowed to be renewed.",
 				},
 				"wrapped": &framework.FieldSchema{
 					Type: framework.TypeDurationSecond,
@@ -105,13 +109,17 @@ addition to those, a set of policies can be assigned using this.
 					Type:        framework.TypeInt,
 					Description: "Number of times the a UserID can access the Apps represented by the Group.",
 				},
-				"ttl": &framework.FieldSchema{
+				"userid_ttl": &framework.FieldSchema{
 					Type:        framework.TypeDurationSecond,
-					Description: "Duration in seconds after which a UserID should expire.",
+					Description: "Duration in seconds after which the issued UserID should expire.",
 				},
-				"max_ttl": &framework.FieldSchema{
+				"token_ttl": &framework.FieldSchema{
 					Type:        framework.TypeDurationSecond,
-					Description: "MaxTTL of the UserID created on the App.",
+					Description: "Duration in seconds after which the issued token should expire.",
+				},
+				"token_max_ttl": &framework.FieldSchema{
+					Type:        framework.TypeDurationSecond,
+					Description: "Duration in seconds after which the issued token should not be allowed to be renewed.",
 				},
 				"wrapped": &framework.FieldSchema{
 					Type: framework.TypeDurationSecond,
@@ -143,7 +151,7 @@ func (b *backend) setGenericEntry(s logical.Storage, genericName string, generic
 
 func (b *backend) deleteGenericEntry(s logical.Storage, genericName string) error {
 	if genericName == "" {
-		return fmt.Errorf("missing app_name")
+		return fmt.Errorf("missing generic_name")
 	}
 
 	return s.Delete("generic/" + strings.ToLower(genericName))
@@ -176,22 +184,23 @@ func (b *backend) pathGenericCredsUpdate(req *logical.Request, data *framework.F
 		return nil, fmt.Errorf("failed to generate UserID:%s", err)
 	}
 	data.Raw["user_id"] = userID
-	return b.handleGenericCredsCommon(req, data)
+	return b.handleGenericCredsCommon(req, data, false)
 }
 
 func (b *backend) pathGenericCredsSpecificUpdate(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	return b.handleGenericCredsCommon(req, data)
+	return b.handleGenericCredsCommon(req, data, true)
 }
 
-func (b *backend) handleGenericCredsCommon(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+func (b *backend) handleGenericCredsCommon(req *logical.Request, data *framework.FieldData, specified bool) (*logical.Response, error) {
 	generic := &genericStorageEntry{
 		Groups:             strutil.ParseStrings(data.Get("groups").(string)),
 		Apps:               strutil.ParseStrings(data.Get("apps").(string)),
 		AdditionalPolicies: policyutil.ParsePolicies(data.Get("additional_policies").(string)),
 		NumUses:            data.Get("num_uses").(int),
-		TTL:                time.Duration(data.Get("ttl").(int)) * time.Second,
-		MaxTTL:             time.Duration(data.Get("max_ttl").(int)) * time.Second,
-		Wrapped:            time.Duration(data.Get("wrapped").(int)) * time.Second,
+		UserIDTTL:          time.Second * time.Duration(data.Get("userid_ttl").(int)),
+		TokenTTL:           time.Second * time.Duration(data.Get("token_ttl").(int)),
+		TokenMaxTTL:        time.Second * time.Duration(data.Get("token_max_ttl").(int)),
+		Wrapped:            time.Second * time.Duration(data.Get("wrapped").(int)),
 	}
 
 	if len(generic.Groups) == 0 && len(generic.Apps) == 0 {
@@ -202,9 +211,8 @@ func (b *backend) handleGenericCredsCommon(req *logical.Request, data *framework
 		return logical.ErrorResponse("num_uses cannot be negative"), nil
 	}
 
-	// Check that TTL value provided is less than MaxTTL.
-	if generic.TTL > generic.MaxTTL {
-		return logical.ErrorResponse("ttl should not be greater than max_ttl"), nil
+	if generic.TokenTTL > generic.TokenMaxTTL {
+		return logical.ErrorResponse("token_ttl should not be greater than token_max_ttl"), nil
 	}
 
 	userID := data.Get("user_id").(string)
@@ -219,12 +227,14 @@ func (b *backend) handleGenericCredsCommon(req *logical.Request, data *framework
 		return nil, err
 	}
 
-	userIDEntry := &userIDStorageEntry{
+	if err := b.registerUserIDEntry(req.Storage, selectorTypeGeneric, genericName, userID, &userIDStorageEntry{
 		NumUses: generic.NumUses,
+	}); err != nil {
+		return nil, fmt.Errorf("failed to store user ID: %s", err)
 	}
 
-	if err := b.registerUserIDEntry(req.Storage, selectorTypeGeneric, genericName, userID, userIDEntry); err != nil {
-		return nil, fmt.Errorf("failed to store user ID: %s", err)
+	if specified {
+		return nil, nil
 	}
 
 	return &logical.Response{
@@ -232,15 +242,6 @@ func (b *backend) handleGenericCredsCommon(req *logical.Request, data *framework
 			"user_id": userID,
 		},
 	}, nil
-}
-
-// Create a random name for generic entry.
-func randomName() (string, error) {
-	if uuidBytes, err := uuid.GenerateRandomBytes(8); err != nil {
-		return "", err
-	} else {
-		return base64.StdEncoding.EncodeToString(uuidBytes), nil
-	}
 }
 
 const pathGenericCredsSpecificHelpSys = `
