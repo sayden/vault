@@ -865,7 +865,8 @@ func (b *backend) handleGroupCredsCommon(req *logical.Request, data *framework.F
 	}
 
 	if err = b.registerUserIDEntry(req.Storage, selectorTypeGroup, groupName, userID, &userIDStorageEntry{
-		NumUses: group.NumUses,
+		NumUses:   group.NumUses,
+		UserIDTTL: group.UserIDTTL,
 	}); err != nil {
 		return nil, fmt.Errorf("failed to store user ID: %s", err)
 	}

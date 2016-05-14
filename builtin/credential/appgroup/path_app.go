@@ -771,7 +771,8 @@ func (b *backend) handleAppCredsCommon(req *logical.Request, data *framework.Fie
 	}
 
 	if err = b.registerUserIDEntry(req.Storage, selectorTypeApp, appName, userID, &userIDStorageEntry{
-		NumUses: app.NumUses,
+		NumUses:   app.NumUses,
+		UserIDTTL: app.UserIDTTL,
 	}); err != nil {
 		return nil, fmt.Errorf("failed to store user ID: %s", err)
 	}

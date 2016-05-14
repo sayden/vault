@@ -41,7 +41,7 @@ func (b *backend) pathLoginRenew(req *logical.Request, data *framework.FieldData
 		return nil, fmt.Errorf("failed to validate selector during renewal:%s", err)
 	}
 
-	return framework.LeaseExtend(resp.TTL, resp.MaxTTL, b.System())(req, data)
+	return framework.LeaseExtend(resp.TokenTTL, resp.TokenMaxTTL, b.System())(req, data)
 }
 
 func (b *backend) pathLoginUpdate(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
@@ -55,7 +55,7 @@ func (b *backend) pathLoginUpdate(req *logical.Request, data *framework.FieldDat
 		return logical.ErrorResponse("missing user_id"), nil
 	}
 
-	validateResp, err := b.validateUserID(req.Storage, selector, userID)
+	validateResp, err := b.validateCredentials(req.Storage, selector, userID)
 	if err != nil {
 		return logical.ErrorResponse(fmt.Sprintf("failed to validate user ID: %s", err)), nil
 	}
@@ -68,7 +68,7 @@ func (b *backend) pathLoginUpdate(req *logical.Request, data *framework.FieldDat
 			},
 			Policies: validateResp.Policies,
 			LeaseOptions: logical.LeaseOptions{
-				TTL:       validateResp.TTL,
+				TTL:       validateResp.TokenTTL,
 				Renewable: true,
 			},
 		},

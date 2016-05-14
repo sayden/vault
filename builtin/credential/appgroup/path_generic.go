@@ -228,7 +228,8 @@ func (b *backend) handleGenericCredsCommon(req *logical.Request, data *framework
 	}
 
 	if err := b.registerUserIDEntry(req.Storage, selectorTypeGeneric, genericName, userID, &userIDStorageEntry{
-		NumUses: generic.NumUses,
+		NumUses:   generic.NumUses,
+		UserIDTTL: generic.UserIDTTL,
 	}); err != nil {
 		return nil, fmt.Errorf("failed to store user ID: %s", err)
 	}
