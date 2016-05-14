@@ -247,7 +247,7 @@ func (b *backend) registerUserIDEntry(s logical.Storage, selectorType, selectorV
 
 	currentTime := time.Now().UTC()
 	userIDEntry.CreationTime = currentTime
-	result.LastUpdatedTime = currentTime
+	userIDEntry.LastUpdatedTime = currentTime
 
 	// If UserIDTTL is not specified or if it crosses the backend mount's limit, cap the expiration to
 	// backend's max. Otherwise, use it to determine the expiration time.
