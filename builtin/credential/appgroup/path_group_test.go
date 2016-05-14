@@ -10,6 +10,72 @@ import (
 	"github.com/mitchellh/mapstructure"
 )
 
+func TestBackend_group_creds(t *testing.T) {
+	var resp *logical.Response
+	var err error
+	b, storage := createBackendWithStorage(t)
+
+	appData := map[string]interface{}{
+		"policies":      "p,q,r,s",
+		"num_uses":      10,
+		"userid_ttl":    300,
+		"token_ttl":     400,
+		"token_max_ttl": 500,
+		"wrapped":       200,
+	}
+	appReq := &logical.Request{
+		Operation: logical.CreateOperation,
+		Path:      "app/app1",
+		Storage:   storage,
+		Data:      appData,
+	}
+
+	resp, err = b.HandleRequest(appReq)
+	failOnError(t, resp, err)
+
+	groupData := map[string]interface{}{
+		"apps":                "app1",
+		"additional_policies": "t,u,v,w",
+		"num_uses":            11,
+		"userid_ttl":          301,
+		"token_ttl":           401,
+		"token_max_ttl":       501,
+		"wrapped":             201,
+	}
+
+	groupReq := &logical.Request{
+		Operation: logical.CreateOperation,
+		Path:      "group/group1",
+		Storage:   storage,
+		Data:      groupData,
+	}
+
+	resp, err = b.HandleRequest(groupReq)
+	failOnError(t, resp, err)
+
+	groupCredsReq := &logical.Request{
+		Operation: logical.ReadOperation,
+		Path:      "group/group1/creds",
+		Storage:   storage,
+	}
+	resp, err = b.HandleRequest(groupCredsReq)
+	failOnError(t, resp, err)
+	if resp.Data["user_id"].(string) == "" {
+		t.Fatalf("failed to generate user_id")
+	}
+
+	groupCredsReq.Path = "group/group1/creds-specific"
+	groupCredsSpecificData := map[string]interface{}{
+		"user_id": "abcd123",
+	}
+	groupCredsReq.Data = groupCredsSpecificData
+	groupCredsReq.Operation = logical.UpdateOperation
+	resp, err = b.HandleRequest(groupCredsReq)
+	failOnError(t, resp, err)
+	if resp != nil {
+		t.Fatalf("failed to set specific user_id to group")
+	}
+}
 func TestBackend_group_CRUD(t *testing.T) {
 	var resp *logical.Response
 	var err error

@@ -838,14 +838,14 @@ func (b *backend) pathGroupCredsRead(req *logical.Request, data *framework.Field
 		return nil, fmt.Errorf("failed to generate UserID:%s", err)
 	}
 	data.Raw["user_id"] = userID
-	return b.handleGroupCredsCommon(req, data)
+	return b.handleGroupCredsCommon(req, data, false)
 }
 
 func (b *backend) pathGroupCredsSpecificUpdate(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	return b.handleGroupCredsCommon(req, data)
+	return b.handleGroupCredsCommon(req, data, true)
 }
 
-func (b *backend) handleGroupCredsCommon(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+func (b *backend) handleGroupCredsCommon(req *logical.Request, data *framework.FieldData, specific bool) (*logical.Response, error) {
 	groupName := data.Get("group_name").(string)
 	if groupName == "" {
 		return logical.ErrorResponse("missing group_name"), nil
@@ -864,12 +864,14 @@ func (b *backend) handleGroupCredsCommon(req *logical.Request, data *framework.F
 		return logical.ErrorResponse(fmt.Sprintf("Group %s does not exist", groupName)), nil
 	}
 
-	userIDEntry := &userIDStorageEntry{
+	if err = b.registerUserIDEntry(req.Storage, selectorTypeGroup, groupName, userID, &userIDStorageEntry{
 		NumUses: group.NumUses,
+	}); err != nil {
+		return nil, fmt.Errorf("failed to store user ID: %s", err)
 	}
 
-	if err = b.registerUserIDEntry(req.Storage, selectorTypeGroup, groupName, userID, userIDEntry); err != nil {
-		return nil, fmt.Errorf("failed to store user ID: %s", err)
+	if specific {
+		return nil, nil
 	}
 
 	return &logical.Response{

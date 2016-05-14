@@ -744,14 +744,14 @@ func (b *backend) pathAppCredsRead(req *logical.Request, data *framework.FieldDa
 		return nil, fmt.Errorf("failed to generate UserID:%s", err)
 	}
 	data.Raw["user_id"] = userID
-	return b.handleAppCredsCommon(req, data)
+	return b.handleAppCredsCommon(req, data, false)
 }
 
 func (b *backend) pathAppCredsSpecificUpdate(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	return b.handleAppCredsCommon(req, data)
+	return b.handleAppCredsCommon(req, data, true)
 }
 
-func (b *backend) handleAppCredsCommon(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+func (b *backend) handleAppCredsCommon(req *logical.Request, data *framework.FieldData, specified bool) (*logical.Response, error) {
 	appName := data.Get("app_name").(string)
 	if appName == "" {
 		return logical.ErrorResponse("missing app_name"), nil
@@ -770,12 +770,14 @@ func (b *backend) handleAppCredsCommon(req *logical.Request, data *framework.Fie
 		return logical.ErrorResponse(fmt.Sprintf("app %s does not exist", appName)), nil
 	}
 
-	userIDEntry := &userIDStorageEntry{
+	if err = b.registerUserIDEntry(req.Storage, selectorTypeApp, appName, userID, &userIDStorageEntry{
 		NumUses: app.NumUses,
+	}); err != nil {
+		return nil, fmt.Errorf("failed to store user ID: %s", err)
 	}
 
-	if err = b.registerUserIDEntry(req.Storage, selectorTypeApp, appName, userID, userIDEntry); err != nil {
-		return nil, fmt.Errorf("failed to store user ID: %s", err)
+	if specified {
+		return nil, nil
 	}
 
 	return &logical.Response{
