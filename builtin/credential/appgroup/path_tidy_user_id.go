@@ -71,8 +71,7 @@ func (b *backend) pathTidyUserIDUpdate(
 	return nil, b.tidyUserID(req.Storage)
 }
 
-const pathTidyUserIDSyn = `
-`
-
-const pathTidyUserIDDesc = `
-`
+const pathTidyUserIDSyn = "Trigger the clean-up of expired UserID entries."
+const pathTidyUserIDDesc = `UserIDs will have expiratin time attached to them. The periodic function
+of the backend will look for expired entries and delete them. This happens once in a minute. Invoking
+this endpoint will trigger the clean-up action, without waiting for the backend's periodic function.`

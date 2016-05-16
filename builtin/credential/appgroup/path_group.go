@@ -883,14 +883,89 @@ func (b *backend) handleGroupCredsCommon(req *logical.Request, data *framework.F
 }
 
 var groupHelp = map[string][2]string{
-	"group":                     {"help", "desc"},
-	"group-apps":                {"help", "desc"},
-	"group-additional-policies": {"help", "desc"},
-	"group-num-uses":            {"help", "desc"},
-	"group-userid-ttl":          {"help", "desc"},
-	"group-token-ttl":           {"help", "desc"},
-	"group-token-max-ttl":       {"help", "desc"},
-	"group-wrgrouped":           {"help", "desc"},
-	"group-creds":               {"help", "desc"},
-	"group-creds-specific":      {"help", "desc"},
+	"group": {
+		"Create a group of Apps and define custom options on it.",
+		`A group registered with the backend represents a group of Apps. The options
+set on the group supercedes the options set on the participating Apps.
+Ther no single set of policies that are to be applied on the group.
+The policies are dynamically determined during the login period. The
+effective polices on the group is a union of all the policies of all
+the participating Apps. However, a comma-delimited set of 'additional_policies'
+can be supplied on the group. These policies will be appended to the
+effective policies.`,
+	},
+	"group-apps": {
+		"Comma-delimited list of participating Apps of the group.",
+		`All the Apps listed here should be registered with the backend before the
+login operation is performed. `,
+	},
+	"group-additional-policies": {
+		`Additional policies to be assigned to the tokens issued by using the UserIDs
+that were generated against this group.`,
+		`If a UserID is generated/assigned against this group, and if these UserIDs
+are used to perform a login operation, the tokens issued will have a
+combined set of policies from each participating App. In addition,
+the 'additional_policies' defined using this option will be appended
+to the issued token's effective policies.`,
+	},
+	"group-num-uses": {
+		"Use limit of the UserID generated against the group.",
+		`If the UserIDs are generated/assigned against the group using
+'group/<group_name>/creds' or 'group/<group_name>/creds-specific'
+endpoints, then the number of times that these UserIDs can access
+the participating Apps is defined by this option.`,
+	},
+	"group-userid-ttl": {
+		`Duration in seconds, representing the lifetime of the UserIDs
+that are generated against the Group using 'group/<group_name>/creds'
+or 'group/<group_name>/creds-specific' endpoints.`,
+		`If the UserIDs are generated against the Group using 'group/<group_name>/creds'
+or 'group/<group_name>/creds-specific' endpoints, then those UserIDs
+will expire after the duration specified by this option. Note that this
+value will be capped by the backend mount's maximux TTL value.`,
+	},
+	`group-token-ttl`: {
+		`Duration in seconds, the lifetime of the token issued by using
+the UserID that is generated against this Group, before which the token
+needs to be renewed.`,
+		`If UserIDs are generated against the Group, using 'group/<group_name>/creds'
+or the 'group/<group_name>/creds-specific' endpoints, and if those UserIDs
+are used to perform the login operation, then the value of 'token-ttl'
+defines the lifetime of the token issued, before which teh token needs
+to be renewed.`,
+	},
+	"group-token-max-ttl": {
+		`Duration in seconds, the maximux lifetime of the tokens issued by using the UserID that were generated against the Group, after which the tokens are not allowed to be renewed.`,
+		`If UserIDs are generated against the Group using 'group/<group_name>/creds'
+or the 'group/<group_name>/creds-specific' endpoints, and if those UserIDs
+are used to perform the login operation, then the value of 'token-max-ttl'
+defines the maximum lifetime of the tokens issued, after which the tokens
+cannot be renewed. A reauthentication is required after this duration.
+This value will be capped by the backend mount's maximux TTL value.`,
+	},
+	"group-wrapped": {
+		"Duration in seconds, the lifetime of the wrapped token.",
+		`Duration in seconds, if set, activates the cubbyhole mode for the response.
+In the cubbyhole mode, the generated UserID will not be returned as-is.
+Instead, the response containing the UserID will be written in the
+cubbyhole of a new token and this new token will be returned as a response.`,
+	},
+	"group-creds": {
+		"Generate a UserID against this Group.",
+		`The UserID generated using this endpoint will be scoped to access
+the participant Apps of this Group. The properties of this UserID will
+be based on the options set on the Group. It will expire after a period
+defined by the 'userid_ttl' option on the Group and/or the backend mount's
+maximum TTL value.`,
+	},
+	"group-creds-specific": {
+		"Assign a UserID of choice against the Group.",
+		`This option is not recommended unless there is a specific need
+to do so. This will assign a client supplied UserID to be used to access
+the participating Apps of the Group. This UserID will behavie similarly
+to the UserIDs generated by the backend. The properties of this UserID
+will be based on the options set on the Group. It will expire after a
+period defined by the 'userid_ttl' option on the Group and/or the backend
+mount's maximux TTL value.`,
+	},
 }
