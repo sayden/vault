@@ -219,6 +219,7 @@ func (b *backend) userIDEntryValid(s logical.Storage, selectorType, selectorValu
 	// it implies that there is no storage entry corresponding to the
 	// UserID. It is either that the ID is an invalid one or that the
 	// UserID is expired. Fail the validation.
+	b.userIDLocksMapLock.RLock()
 	lock := b.userIDLocksMap[userID]
 	if lock == nil {
 		return false, nil
@@ -234,8 +235,6 @@ func (b *backend) userIDEntryValid(s logical.Storage, selectorType, selectorValu
 		return false, err
 	} else if entry == nil {
 		lock.RUnlock()
-		// There exists a lock for the UserID, but storage entry is empty.
-		b.userIDLocksMap[userID] = nil
 		return false, nil
 	} else if err := entry.DecodeJSON(&result); err != nil {
 		lock.RUnlock()
@@ -254,6 +253,11 @@ func (b *backend) userIDEntryValid(s logical.Storage, selectorType, selectorValu
 	// in the storage. Switch the lock from a `read` to a `write` and update
 	// the storage entry.
 	lock.RUnlock()
+	b.userIDLocksMapLock.RUnlock()
+
+	b.userIDLocksMapLock.Lock()
+	defer b.userIDLocksMapLock.Unlock()
+
 	lock.Lock()
 	defer lock.Unlock()
 
@@ -262,8 +266,6 @@ func (b *backend) userIDEntryValid(s logical.Storage, selectorType, selectorValu
 	if entry, err := s.Get(entryIndex); err != nil {
 		return false, err
 	} else if entry == nil {
-		// There exists a lock for the UserID, but storage entry is empty.
-		b.userIDLocksMap[userID] = nil
 		return false, nil
 	} else if err := entry.DecodeJSON(&result); err != nil {
 		return false, err
@@ -308,6 +310,15 @@ func (b *backend) userIDEntryValid(s logical.Storage, selectorType, selectorValu
 // map is the UserID itself. During login, if the UserID supplied is not
 // having a corresponding lock in the map, the login attempt fails.
 func (b *backend) registerUserIDEntry(s logical.Storage, selectorType, selectorValue, userID string, userIDEntry *userIDStorageEntry) error {
+	b.userIDLocksMapLock.RLock()
+	if b.userIDLocksMap[userID] != nil {
+		return fmt.Errorf("user ID is already registered")
+	}
+	b.userIDLocksMapLock.RUnlock()
+
+	b.userIDLocksMapLock.Lock()
+	defer b.userIDLocksMapLock.Unlock()
+
 	if b.userIDLocksMap[userID] != nil {
 		return fmt.Errorf("user ID is already registered")
 	}

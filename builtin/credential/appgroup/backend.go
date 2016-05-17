@@ -18,7 +18,7 @@ type backend struct {
 	// Lock to make changes to registered Apps
 	appLock *sync.RWMutex
 
-	// Lock to make changes to registered Apps
+	// Lock to make changes to registered Groups
 	groupLock *sync.RWMutex
 
 	// Lock to make changes to "generic" mode storage entries
