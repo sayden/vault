@@ -23,8 +23,29 @@ type groupStorageEntry struct {
 	AdditionalPolicies []string      `json:"additional_policies" structs:"additional_policies" mapstructure:"additional_policies"`
 }
 
+// groupPaths creates all the paths that are used to register and manage an Group.
+//
+// Paths returned:
+// group/
+// group/<group_name>
+// group/policies
+// group/num-uses
+// group/userid-ttl
+// group/token-ttl
+// group/token-max-ttl
+// group/wrapped
+// group/<group_name>/creds
+// group/<group_name>/creds-specific
 func groupPaths(b *backend) []*framework.Path {
 	return []*framework.Path{
+		&framework.Path{
+			Pattern: "group/?",
+			Callbacks: map[logical.Operation]framework.OperationFunc{
+				logical.ListOperation: b.pathGroupList,
+			},
+			HelpSynopsis:    strings.TrimSpace(groupHelp["group-list"][0]),
+			HelpDescription: strings.TrimSpace(groupHelp["group-list"][1]),
+		},
 		&framework.Path{
 			Pattern: "group/" + framework.GenericNameRegex("group_name"),
 			Fields: map[string]*framework.FieldSchema{
@@ -267,6 +288,19 @@ will be the duration after which the returned token expires.
 			HelpDescription: strings.TrimSpace(groupHelp["group-creds-specific"][1]),
 		},
 	}
+}
+
+// pathGroupList is used to list all the Groups registered with the backend.
+func (b *backend) pathGroupList(
+	req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+	b.groupLock.RLock()
+	defer b.groupLock.RUnlock()
+
+	groups, err := req.Storage.List("group/")
+	if err != nil {
+		return nil, err
+	}
+	return logical.ListResponse(groups), nil
 }
 
 func (b *backend) setGroupEntry(s logical.Storage, groupName string, group *groupStorageEntry) error {
@@ -883,6 +917,10 @@ func (b *backend) handleGroupCredsCommon(req *logical.Request, data *framework.F
 }
 
 var groupHelp = map[string][2]string{
+	"group-list": {
+		"Lists all the Groups registered with the backend.",
+		"The list will contain the names of the Groups.",
+	},
 	"group": {
 		"Create a group of Apps and define custom options on it.",
 		`A group registered with the backend represents a group of Apps. The options

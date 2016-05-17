@@ -11,12 +11,25 @@ import (
 type backend struct {
 	*framework.Backend
 	salt *salt.Salt
-	// Guards the UserID tidy functions
+
+	// Guards to clean-up the expired UserID entries
 	tidyUserIDCASGuard uint32
-	appLock            *sync.RWMutex
-	groupLock          *sync.RWMutex
-	genericLock        *sync.RWMutex
-	userIDLocks        map[string]*sync.RWMutex
+
+	// Lock to make changes to registered Apps
+	appLock *sync.RWMutex
+
+	// Lock to make changes to registered Apps
+	groupLock *sync.RWMutex
+
+	// Lock to make changes to "generic" mode storage entries
+	genericLock *sync.RWMutex
+
+	// Map of locks to make changes to the UserIDs created.
+	// The lock in the map will be keyed off of UserID itself.
+	// Each UserID will have a separate lock which is used to
+	// update the information related to it, 'num_uses' for example.
+	// The lock will be deleted when the UserID is delted.
+	userIDLocks map[string]*sync.RWMutex
 }
 
 func Factory(conf *logical.BackendConfig) (logical.Backend, error) {
@@ -38,15 +51,26 @@ func Backend(conf *logical.BackendConfig) (*framework.Backend, error) {
 
 	// Create a backend object
 	b := &backend{
-		salt:        salt,
-		appLock:     &sync.RWMutex{},
-		groupLock:   &sync.RWMutex{},
+		// Set the salt object for the backend
+		salt: salt,
+
+		// Create the lock for making changes to the Apps registered with the backend
+		appLock: &sync.RWMutex{},
+
+		// Create the lock for making changes to the Groups registered with the backend
+		groupLock: &sync.RWMutex{},
+
+		// Create the lock for making changes to the storage entries of "generic" mode
 		genericLock: &sync.RWMutex{},
+
+		// Create the map of locks to hold locks that are used to modify the created
+		// UserIDs.
 		userIDLocks: map[string]*sync.RWMutex{},
 	}
 
 	// Attach the paths and secrets that are to be handled by the backend
 	b.Backend = &framework.Backend{
+		// Register a periodic function that deletes the expired UserID entries
 		PeriodicFunc: b.periodicFunc,
 		Help:         backendHelp,
 		AuthRenew:    b.pathLoginRenew,
@@ -68,10 +92,20 @@ func Backend(conf *logical.BackendConfig) (*framework.Backend, error) {
 	return b.Backend, nil
 }
 
+// periodicFunc of the backend will be invoked once a minute by the RollbackManager.
+// AppGroup backend utilizes this function to delete expired UserID entries.
+// This could mean that the UserID may live in the backend upto 1min after its
+// expiration. The deletion of UserIDs are not security sensitive and it is okay
+// to delay the removal of UserIDs by a minute.
 func (b *backend) periodicFunc(req *logical.Request) error {
+	// Initiate clean-up of expired UserID entries
 	b.tidyUserID(req.Storage)
 	return nil
 }
 
-const backendHelp = `
-`
+const backendHelp = `Any registered App(s) or Group(s) of Apps can authenticate themselves
+with Vault using UserIDs that are specifically generated to serve that
+purpose. The UserIDs have nice properties like usage-limit and expiration,
+that can address numerous use-cases. An App can represent a service, or
+a machine or anything that can be IDed. Since an App can be a machine in
+itself, the AppGroup backend is a potential successor for the App-ID backend.`

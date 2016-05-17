@@ -245,14 +245,23 @@ func (b *backend) handleGenericCredsCommon(req *logical.Request, data *framework
 	}, nil
 }
 
-const pathGenericCredsSpecificHelpSys = `
-`
+const pathGenericCredsSpecificHelpSys = `Assign a UserID of choice against any combination of
+registered App(s) and/or Group(s), with custom options.`
 
-const pathGenericCredsSpecificHelpDesc = `
-`
+const pathGenericCredsSpecificHelpDesc = `This option is not recommended unless there is a specific
+need to do so. This will assign a client supplied UserID to be used to
+access all the specified Apps and all the participating Apps of all the
+specified Groups. The options on this endpoint will supercede all the
+options set on App(s)/Group(s). The UserIDs generated will expire after
+a period defined by the 'userid_ttl' option and/or the backend mount's
+maximum TTL value.`
 
-const pathGenericCredsHelpSys = `
-`
+const pathGenericCredsHelpSys = `Generate UserID against any combination of registered App(s)
+and/or Group(s), with custom options.`
 
-const pathGenericCredsHelpDesc = `
-`
+const pathGenericCredsHelpDesc = `The UserID generated using this endpoint will be able to
+access all the specified Apps and all the participating Apps of all the
+specified Groups. The options specified on this endpoint will supercede
+all the options set on App(s)/Group(s). The UserIDs generated will expire
+after a period defined by the 'userid_ttl' option and/or the backend
+mount's maximum TTL value.`

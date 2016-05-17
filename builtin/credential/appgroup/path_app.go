@@ -12,17 +12,53 @@ import (
 	"github.com/hashicorp/vault/logical/framework"
 )
 
+// appStorageEntry stores all the options that are set on an App
 type appStorageEntry struct {
-	Policies    []string      `json:"policies" structs:"policies" mapstructure:"policies"`
-	NumUses     int           `json:"num_uses" structs:"num_uses" mapstructure:"num_uses"`
-	UserIDTTL   time.Duration `json:"userid_ttl" structs:"userid_ttl" mapstructure:"userid_ttl"`
-	TokenTTL    time.Duration `json:"token_ttl" structs:"token_ttl" mapstructure:"token_ttl"`
+	// Policies that are to be required by the token to access the App
+	Policies []string `json:"policies" structs:"policies" mapstructure:"policies"`
+
+	// Number of times the UserID generated against the App can be used to perform login
+	NumUses int `json:"num_uses" structs:"num_uses" mapstructure:"num_uses"`
+
+	// Duration (less than the backend's mount) after which a UserID generated against the App will expire
+	UserIDTTL time.Duration `json:"userid_ttl" structs:"userid_ttl" mapstructure:"userid_ttl"`
+
+	// Duration before which an issued token should renew itself
+	TokenTTL time.Duration `json:"token_ttl" structs:"token_ttl" mapstructure:"token_ttl"`
+
+	// Duration after which an issued token should not be allowed to be renewed
 	TokenMaxTTL time.Duration `json:"token_max_ttl" structs:"token_max_ttl" mapstructure:"token_max_ttl"`
-	Wrapped     time.Duration `json:"wrapped" structs:"wrapped" mapstructure:"wrapped"`
+
+	// If set, activates cubbyhole mode for the UserIDs generated against the App.
+	// An intermediary token will have the actual UserID's reponse written in its cubbyhole.
+	// The value of Wrapped will be the duration after which the intermediary token
+	// along with its cubbyhole will be destroyed.
+	Wrapped time.Duration `json:"wrapped" structs:"wrapped" mapstructure:"wrapped"`
 }
 
+// appPaths creates all the paths that are used to register and manage an App.
+//
+// Paths returned:
+// app/
+// app/<app_name>
+// app/policies
+// app/num-uses
+// app/userid-ttl
+// app/token-ttl
+// app/token-max-ttl
+// app/wrapped
+// app/<app_name>/creds
+// app/<app_name>/creds-specific
 func appPaths(b *backend) []*framework.Path {
 	return []*framework.Path{
+		&framework.Path{
+			Pattern: "app/?",
+			Callbacks: map[logical.Operation]framework.OperationFunc{
+				logical.ListOperation: b.pathAppList,
+			},
+			HelpSynopsis:    strings.TrimSpace(appHelp["app-list"][0]),
+			HelpDescription: strings.TrimSpace(appHelp["app-list"][1]),
+		},
 		&framework.Path{
 			Pattern: "app/" + framework.GenericNameRegex("app_name"),
 			Fields: map[string]*framework.FieldSchema{
@@ -41,7 +77,6 @@ func appPaths(b *backend) []*framework.Path {
 				},
 				"userid_ttl": &framework.FieldSchema{
 					Type:        framework.TypeDurationSecond,
-					Default:     259200, //72h
 					Description: "Duration in seconds after which the issued UserID should expire.",
 				},
 				"token_ttl": &framework.FieldSchema{
@@ -233,6 +268,19 @@ value of 'wrapped' is the duration after which the returned token expires.
 			HelpDescription: strings.TrimSpace(appHelp["app-creds-specified"][1]),
 		},
 	}
+}
+
+// pathAppList is used to list all the Apps registered with the backend.
+func (b *backend) pathAppList(
+	req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+	b.appLock.RLock()
+	defer b.appLock.RUnlock()
+
+	apps, err := req.Storage.List("app/")
+	if err != nil {
+		return nil, err
+	}
+	return logical.ListResponse(apps), nil
 }
 
 func (b *backend) setAppEntry(s logical.Storage, appName string, app *appStorageEntry) error {
@@ -789,6 +837,10 @@ func (b *backend) handleAppCredsCommon(req *logical.Request, data *framework.Fie
 }
 
 var appHelp = map[string][2]string{
+	"app-list": {
+		"Lists all the Apps registered with the backend.",
+		"The list will contain the names of the Apps.",
+	},
 	"app": {
 		"Register an App with the backend.",
 		`An App can represent a service, a machine or anything that can be IDed.
