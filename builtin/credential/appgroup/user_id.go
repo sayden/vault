@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/hashicorp/vault/helper/policyutil"
 	"github.com/hashicorp/vault/helper/strutil"
 	"github.com/hashicorp/vault/logical"
 )
@@ -193,6 +194,8 @@ func (b *backend) validateSelector(s logical.Storage, selectorType, selectorValu
 	if err != nil {
 		return nil, err
 	}
+
+	resp.Policies = policyutil.SanitizePolicies(resp.Policies)
 
 	// Even though wrapped is unrelated to the token_ttl and token_max_ttl
 	// values, since it is issued out of the backend, it should respect the
