@@ -16,14 +16,31 @@ const (
 	selectorTypeGeneric = "generic"
 )
 
+// userIDStorageEntry represents the information stored in storage when a UserID is created.
+// The structure of the UserID storage entry is the same for all the types of UserIDs generated.
 type userIDStorageEntry struct {
-	NumUses         int           `json:"num_uses" structs:"num_uses" mapstructure:"num_uses"`
-	UserIDTTL       time.Duration `json:"userid_ttl" structs:"userid_ttl" mapstructure:"userid_ttl"`
-	CreationTime    time.Time     `json:"creation_time" structs:"creation_time" mapstructure:"creation_time"`
-	ExpirationTime  time.Time     `json:"expiration_time" structs:"expiration_time" mapstructure:"expiration_time"`
-	LastUpdatedTime time.Time     `json:"last_updated_time" structs:"last_updated_time" mapstructure:"last_updated_time"`
+	// Number of times this UserID can be used to perform the login operation
+	NumUses int `json:"num_uses" structs:"num_uses" mapstructure:"num_uses"`
+
+	// Duration after which this UserID should expire. This is capped by the backend mount's
+	// max TTL value.
+	UserIDTTL time.Duration `json:"userid_ttl" structs:"userid_ttl" mapstructure:"userid_ttl"`
+
+	// The time in UTC when the UserID was created
+	CreationTime time.Time `json:"creation_time" structs:"creation_time" mapstructure:"creation_time"`
+
+	// The time in UTC when the UserID becomes eligible for tidy operation.
+	// Tidying is performed by the PeriodicFunc of the backend which is 1 minute apart.
+	ExpirationTime time.Time `json:"expiration_time" structs:"expiration_time" mapstructure:"expiration_time"`
+
+	// The time in UTC representing the last time this storage entry was modified
+	LastUpdatedTime time.Time `json:"last_updated_time" structs:"last_updated_time" mapstructure:"last_updated_time"`
 }
 
+// validationResponse will be the result of credentials verification performed during login.
+// This contains information that either needs to be returned to the client or information
+// required to be stored as metadata in the response, and/or the information required to
+// create the client token.
 type validationResponse struct {
 	SelectorType  string        `json:"selector_type" structs:"selector_type" mapstructure:"selector_type"`
 	SelectorValue string        `json:"selector_value" structs:"selector_value" mapstructure:"selector_value"`
@@ -43,6 +60,8 @@ func (b *backend) validateCredentials(s logical.Storage, selector, userID string
 		return nil, fmt.Errorf("missing userID")
 	}
 
+	// From the selector field supplied as the credential, detect the type of UserID
+	// supplied. UserID will be verified based on the type.
 	selectorType := ""
 	selectorValue := ""
 	switch {
@@ -63,8 +82,16 @@ func (b *backend) validateCredentials(s logical.Storage, selector, userID string
 		return nil, fmt.Errorf("unrecognized selector")
 	}
 
+	// Do the selector validation first. If this results in an error, the UserID
+	// entry should not be modified. Return the validation response if the UserID
+	// is found to be valid and if the UserID entry is updated properly.
+	validationResp, err := b.validateSelector(s, selectorType, selectorValue)
+	if err != nil {
+		return nil, err
+	}
+
 	// Check if the user ID supplied is valid. If use limit was specified
-	// on the user ID, decrement the count.
+	// on the user ID, it will be decremented in this call.
 	valid, err := b.userIDEntryValid(s, selectorType, selectorValue, userID)
 	if err != nil {
 		return nil, err
@@ -73,10 +100,10 @@ func (b *backend) validateCredentials(s logical.Storage, selector, userID string
 		return nil, fmt.Errorf("invalid user ID")
 	}
 
-	return b.validateSelector(s, selectorType, selectorValue)
+	return validationResp, nil
 }
 
-// Checks if there exists an entry in the name of selectorValue for the selectorType supplied.
+// Check if there exists an entry in the name of selectorValue for the selectorType supplied.
 // Prepares a response containing the combined set of policies, TTL and Wrapped values that are
 // applicable to the login.
 func (b *backend) validateSelector(s logical.Storage, selectorType, selectorValue string) (*validationResponse, error) {
@@ -268,7 +295,8 @@ func (b *backend) registerUserIDEntry(s logical.Storage, selectorType, selectorV
 	return nil
 }
 
-// Iterates through all the apps and fetches the policies of each.
+// Iterates through all the Apps and fetches the policies of each.
+// An error is thrown if any App in the list does not exist.
 func (b *backend) fetchPolicies(s logical.Storage, apps []string) ([]string, error) {
 	var policies []string
 	for _, appName := range apps {

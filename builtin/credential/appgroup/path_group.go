@@ -13,14 +13,33 @@ import (
 	"github.com/hashicorp/vault/logical/framework"
 )
 
+// groupStorageEntry stores all the options that are set on a Group
 type groupStorageEntry struct {
-	Apps               []string      `json:"apps" structs:"apps" mapstructure:"apps"`
-	NumUses            int           `json:"num_uses" structs:"num_uses" mapstructure:"num_uses"`
-	UserIDTTL          time.Duration `json:"userid_ttl" structs:"userid_ttl" mapstructure:"userid_ttl"`
-	TokenTTL           time.Duration `json:"token_ttl" structs:"token_ttl" mapstructure:"token_ttl"`
-	TokenMaxTTL        time.Duration `json:"token_max_ttl" structs:"token_max_ttl" mapstructure:"token_max_ttl"`
-	Wrapped            time.Duration `json:"wrapped" structs:"wrapped" mapstructure:"wrapped"`
-	AdditionalPolicies []string      `json:"additional_policies" structs:"additional_policies" mapstructure:"additional_policies"`
+	// All the participating Apps of the Group
+	Apps []string `json:"apps" structs:"apps" mapstructure:"apps"`
+
+	// Number of times the UserID generated against the Group can be used to perform login
+	NumUses int `json:"num_uses" structs:"num_uses" mapstructure:"num_uses"`
+
+	// Duration (less than the backend's mount) after which a UserID generated against the Group will expire
+	UserIDTTL time.Duration `json:"userid_ttl" structs:"userid_ttl" mapstructure:"userid_ttl"`
+
+	// Duration before which an issued token should renew itself
+	TokenTTL time.Duration `json:"token_ttl" structs:"token_ttl" mapstructure:"token_ttl"`
+
+	// Duration after which an issued token should not be allowed to be renewed
+	TokenMaxTTL time.Duration `json:"token_max_ttl" structs:"token_max_ttl" mapstructure:"token_max_ttl"`
+
+	// If set, activates cubbyhole mode for the UserIDs generated against the Group.
+	// An intermediary token will have the actual UserID reponse written in its cubbyhole.
+	// The value of Wrapped will be the duration after which the intermediary token
+	// along with its cubbyhole will be destroyed.
+	Wrapped time.Duration `json:"wrapped" structs:"wrapped" mapstructure:"wrapped"`
+
+	// Along with the combined set of Apps' policies, the policies in this list will be
+	// added to capabilities of the token issued, when a UserID generated against a Group
+	// is used perform the login.
+	AdditionalPolicies []string `json:"additional_policies" structs:"additional_policies" mapstructure:"additional_policies"`
 }
 
 // groupPaths creates all the paths that are used to register and manage an Group.
@@ -303,6 +322,7 @@ func (b *backend) pathGroupList(
 	return logical.ListResponse(groups), nil
 }
 
+// setAppEntry grabs a write lock and stores the options on a Group into the storage
 func (b *backend) setGroupEntry(s logical.Storage, groupName string, group *groupStorageEntry) error {
 	b.groupLock.Lock()
 	defer b.groupLock.Unlock()
@@ -314,6 +334,7 @@ func (b *backend) setGroupEntry(s logical.Storage, groupName string, group *grou
 	}
 }
 
+// groupEntry grabs the read lock and fetches the options of an Group from the storage
 func (b *backend) groupEntry(s logical.Storage, groupName string) (*groupStorageEntry, error) {
 	if groupName == "" {
 		return nil, fmt.Errorf("missing group_name")
@@ -335,6 +356,8 @@ func (b *backend) groupEntry(s logical.Storage, groupName string) (*groupStorage
 	return &result, nil
 }
 
+// pathAppCreateUpdate registers a new Group with the backend or updates the options
+// of an existing Group
 func (b *backend) pathGroupCreateUpdate(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
 	groupName := data.Get("group_name").(string)
 	if groupName == "" {
@@ -389,7 +412,7 @@ func (b *backend) pathGroupCreateUpdate(req *logical.Request, data *framework.Fi
 		group.TokenMaxTTL = time.Second * time.Duration(data.Get("token_max_ttl").(int))
 	}
 
-	if group.TokenTTL > group.TokenMaxTTL {
+	if group.TokenMaxTTL > time.Duration(0) && group.TokenTTL > group.TokenMaxTTL {
 		return logical.ErrorResponse("token_ttl should not be greater than token_max_ttl"), nil
 	}
 
@@ -403,6 +426,7 @@ func (b *backend) pathGroupCreateUpdate(req *logical.Request, data *framework.Fi
 	return nil, b.setGroupEntry(req.Storage, groupName, group)
 }
 
+// pathGroupRead grabs a read lock and reads the options set on the Group from the storage
 func (b *backend) pathGroupRead(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
 	groupName := data.Get("group_name").(string)
 	if groupName == "" {
@@ -426,11 +450,14 @@ func (b *backend) pathGroupRead(req *logical.Request, data *framework.FieldData)
 	}
 }
 
+// pathGroupDelete removes the Group from the storage
 func (b *backend) pathGroupDelete(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
 	groupName := data.Get("group_name").(string)
 	if groupName == "" {
 		return logical.ErrorResponse("missing group_name"), nil
 	}
+	b.groupLock.Lock()
+	defer b.groupLock.Unlock()
 
 	return nil, req.Storage.Delete("group/" + strings.ToLower(groupName))
 }
@@ -694,7 +721,8 @@ func (b *backend) pathGroupTokenTTLUpdate(req *logical.Request, data *framework.
 	}
 
 	if tokenTTLRaw, ok := data.GetOk("token_ttl"); ok {
-		if group.TokenTTL = time.Second * time.Duration(tokenTTLRaw.(int)); group.TokenTTL > group.TokenMaxTTL {
+		group.TokenTTL = time.Second * time.Duration(tokenTTLRaw.(int))
+		if group.TokenMaxTTL > time.Duration(0) && group.TokenTTL > group.TokenMaxTTL {
 			return logical.ErrorResponse("token_ttl should not be greater than token_max_ttl"), nil
 		}
 		return nil, b.setGroupEntry(req.Storage, groupName, group)
@@ -757,7 +785,8 @@ func (b *backend) pathGroupTokenMaxTTLUpdate(req *logical.Request, data *framewo
 	}
 
 	if tokenMaxTTLRaw, ok := data.GetOk("token_max_ttl"); ok {
-		if group.TokenMaxTTL = time.Second * time.Duration(tokenMaxTTLRaw.(int)); group.TokenTTL > group.TokenMaxTTL {
+		group.TokenMaxTTL = time.Second * time.Duration(tokenMaxTTLRaw.(int))
+		if group.TokenMaxTTL > time.Duration(0) && group.TokenTTL > group.TokenMaxTTL {
 			return logical.ErrorResponse("token_max_ttl should be greater than token_ttl"), nil
 		}
 		return nil, b.setGroupEntry(req.Storage, groupName, group)

@@ -30,7 +30,7 @@ type appStorageEntry struct {
 	TokenMaxTTL time.Duration `json:"token_max_ttl" structs:"token_max_ttl" mapstructure:"token_max_ttl"`
 
 	// If set, activates cubbyhole mode for the UserIDs generated against the App.
-	// An intermediary token will have the actual UserID's reponse written in its cubbyhole.
+	// An intermediary token will have the actual UserID reponse written in its cubbyhole.
 	// The value of Wrapped will be the duration after which the intermediary token
 	// along with its cubbyhole will be destroyed.
 	Wrapped time.Duration `json:"wrapped" structs:"wrapped" mapstructure:"wrapped"`
@@ -283,6 +283,7 @@ func (b *backend) pathAppList(
 	return logical.ListResponse(apps), nil
 }
 
+// setAppEntry grabs a write lock and stores the options on an App into the storage
 func (b *backend) setAppEntry(s logical.Storage, appName string, app *appStorageEntry) error {
 	b.appLock.Lock()
 	defer b.appLock.Unlock()
@@ -293,6 +294,7 @@ func (b *backend) setAppEntry(s logical.Storage, appName string, app *appStorage
 	}
 }
 
+// appEntry grabs the read lock and fetches the options of an App from the storage
 func (b *backend) appEntry(s logical.Storage, appName string) (*appStorageEntry, error) {
 	if appName == "" {
 		return nil, fmt.Errorf("missing app_name")
@@ -314,6 +316,8 @@ func (b *backend) appEntry(s logical.Storage, appName string) (*appStorageEntry,
 	return &result, nil
 }
 
+// pathAppCreateUpdate registers a new App with the backend or updates the options
+// of an existing App
 func (b *backend) pathAppCreateUpdate(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
 	appName := data.Get("app_name").(string)
 	if appName == "" {
@@ -325,6 +329,7 @@ func (b *backend) pathAppCreateUpdate(req *logical.Request, data *framework.Fiel
 	if err != nil {
 		return nil, err
 	}
+	// Create a new entry object if this is a CreateOperation
 	if app == nil {
 		app = &appStorageEntry{}
 	}
@@ -365,7 +370,7 @@ func (b *backend) pathAppCreateUpdate(req *logical.Request, data *framework.Fiel
 	// Check that the TokenMaxTTL value provided is less than the TokenMaxTTL.
 	// Sanitizing the TTL and MaxTTL is not required now and can be performed
 	// at credential issue time.
-	if app.TokenTTL > app.TokenMaxTTL {
+	if app.TokenMaxTTL > time.Duration(0) && app.TokenTTL > app.TokenMaxTTL {
 		return logical.ErrorResponse("token_ttl should not be greater than token_max_ttl"), nil
 	}
 
@@ -378,6 +383,7 @@ func (b *backend) pathAppCreateUpdate(req *logical.Request, data *framework.Fiel
 	return nil, b.setAppEntry(req.Storage, appName, app)
 }
 
+// pathAppRead grabs a read lock and reads the options set on the App from the storage
 func (b *backend) pathAppRead(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
 	appName := data.Get("app_name").(string)
 	if appName == "" {
@@ -401,11 +407,14 @@ func (b *backend) pathAppRead(req *logical.Request, data *framework.FieldData) (
 	}
 }
 
+// pathAppDelete removes the App from the storage
 func (b *backend) pathAppDelete(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
 	appName := data.Get("app_name").(string)
 	if appName == "" {
 		return logical.ErrorResponse("missing app_name"), nil
 	}
+	b.appLock.Lock()
+	defer b.appLock.Unlock()
 
 	return nil, req.Storage.Delete("app/" + strings.ToLower(appName))
 }
@@ -612,7 +621,8 @@ func (b *backend) pathAppTokenTTLUpdate(req *logical.Request, data *framework.Fi
 	}
 
 	if tokenTTLRaw, ok := data.GetOk("token_ttl"); ok {
-		if app.TokenTTL = time.Second * time.Duration(tokenTTLRaw.(int)); app.TokenTTL > app.TokenMaxTTL {
+		app.TokenTTL = time.Second * time.Duration(tokenTTLRaw.(int))
+		if app.TokenMaxTTL > time.Duration(0) && app.TokenTTL > app.TokenMaxTTL {
 			return logical.ErrorResponse("token_ttl should not be greater than token_max_ttl"), nil
 		}
 		return nil, b.setAppEntry(req.Storage, appName, app)
@@ -676,7 +686,8 @@ func (b *backend) pathAppTokenMaxTTLUpdate(req *logical.Request, data *framework
 	}
 
 	if tokenMaxTTLRaw, ok := data.GetOk("token_max_ttl"); ok {
-		if app.TokenMaxTTL = time.Second * time.Duration(tokenMaxTTLRaw.(int)); app.TokenTTL > app.TokenMaxTTL {
+		app.TokenMaxTTL = time.Second * time.Duration(tokenMaxTTLRaw.(int))
+		if app.TokenMaxTTL > time.Duration(0) && app.TokenTTL > app.TokenMaxTTL {
 			return logical.ErrorResponse("token_max_ttl should be greater than or equal to token_ttl"), nil
 		}
 		return nil, b.setAppEntry(req.Storage, appName, app)

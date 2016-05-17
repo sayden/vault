@@ -12,17 +12,44 @@ import (
 	"github.com/hashicorp/vault/logical/framework"
 )
 
+// genericStorageEntry stores all the options that are set during UserID
+// creation in "generic" mode.
 type genericStorageEntry struct {
-	Groups             []string      `json:"groups" structs:"groups" mapstructure:"groups"`
-	Apps               []string      `json:"apps" structs:"apps" mapstructure:"apps"`
-	NumUses            int           `json:"num_uses" structs:"num_uses" mapstructure:"num_uses"`
-	UserIDTTL          time.Duration `json:"userid_ttl" structs:"userid_ttl" mapstructure:"userid_ttl"`
-	TokenTTL           time.Duration `json:"token_ttl" structs:"token_ttl" mapstructure:"token_ttl"`
-	TokenMaxTTL        time.Duration `json:"token_max_ttl" structs:"token_max_ttl" mapstructure:"token_max_ttl"`
-	Wrapped            time.Duration `json:"wrapped" structs:"wrapped" mapstructure:"wrapped"`
-	AdditionalPolicies []string      `json:"additional_policies" structs:"additional_policies" mapstructure:"additional_policies"`
+	// All the Groups that are to be accessible by the UseID created
+	Groups []string `json:"groups" structs:"groups" mapstructure:"groups"`
+
+	// All the Apps that are to be accessible by the UserID created
+	Apps []string `json:"apps" structs:"apps" mapstructure:"apps"`
+
+	// Number of times the generated UserID can be used to perform login
+	NumUses int `json:"num_uses" structs:"num_uses" mapstructure:"num_uses"`
+
+	// Duration (less than the backend's mount) after which a UserID generated will expire
+	UserIDTTL time.Duration `json:"userid_ttl" structs:"userid_ttl" mapstructure:"userid_ttl"`
+
+	// Duration before which an issued token should renew itself
+	TokenTTL time.Duration `json:"token_ttl" structs:"token_ttl" mapstructure:"token_ttl"`
+
+	// Duration after which an issued token should not be allowed to be renewed
+	TokenMaxTTL time.Duration `json:"token_max_ttl" structs:"token_max_ttl" mapstructure:"token_max_ttl"`
+
+	// If set, activates cubbyhole mode for the UserIDs generated in the generic mode.
+	// An intermediary token will have the actual UserID reponse written in its cubbyhole.
+	// The value of Wrapped will be the duration after which the intermediary token
+	// along with its cubbyhole will be destroyed.
+	Wrapped time.Duration `json:"wrapped" structs:"wrapped" mapstructure:"wrapped"`
+
+	// Along with the combined set of Apps' and Groups' policies, the policies in this
+	// list will be added to capabilities of the token issued, when a UserID generated
+	// in generic mode is used perform the login.
+	AdditionalPolicies []string `json:"additional_policies" structs:"additional_policies" mapstructure:"additional_policies"`
 }
 
+// genericPaths creates the paths that are used to create UserIDs in generic mode
+//
+// Paths returned:
+// generic/creds
+// generic/creds-specific
 func genericPaths(b *backend) []*framework.Path {
 	return []*framework.Path{
 		&framework.Path{
@@ -211,7 +238,7 @@ func (b *backend) handleGenericCredsCommon(req *logical.Request, data *framework
 		return logical.ErrorResponse("num_uses cannot be negative"), nil
 	}
 
-	if generic.TokenTTL > generic.TokenMaxTTL {
+	if generic.TokenMaxTTL > time.Duration(0) && generic.TokenTTL > generic.TokenMaxTTL {
 		return logical.ErrorResponse("token_ttl should not be greater than token_max_ttl"), nil
 	}
 
