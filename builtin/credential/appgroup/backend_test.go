@@ -48,11 +48,11 @@ func createBackend(conf *logical.BackendConfig) (*backend, error) {
 
 	// Create a backend object
 	b := &backend{
-		salt:        salt,
-		appLock:     &sync.RWMutex{},
-		groupLock:   &sync.RWMutex{},
-		genericLock: &sync.RWMutex{},
-		userIDLocks: map[string]*sync.RWMutex{},
+		salt:           salt,
+		appLock:        &sync.RWMutex{},
+		groupLock:      &sync.RWMutex{},
+		genericLock:    &sync.RWMutex{},
+		userIDLocksMap: map[string]*sync.RWMutex{},
 	}
 
 	// Attach the paths and secrets that are to be handled by the backend

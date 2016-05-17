@@ -180,6 +180,8 @@ func (b *backend) deleteGenericEntry(s logical.Storage, genericName string) erro
 	if genericName == "" {
 		return fmt.Errorf("missing generic_name")
 	}
+	b.genericLock.Lock()
+	defer b.genericLock.Unlock()
 
 	return s.Delete("generic/" + strings.ToLower(genericName))
 }

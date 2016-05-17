@@ -12,7 +12,7 @@ type backend struct {
 	*framework.Backend
 	salt *salt.Salt
 
-	// Guards to clean-up the expired UserID entries
+	// Guard to clean-up the expired UserID entries
 	tidyUserIDCASGuard uint32
 
 	// Lock to make changes to registered Apps
@@ -29,7 +29,10 @@ type backend struct {
 	// Each UserID will have a separate lock which is used to
 	// update the information related to it, 'num_uses' for example.
 	// The lock will be deleted when the UserID is delted.
-	userIDLocks map[string]*sync.RWMutex
+	userIDLocksMap map[string]*sync.RWMutex
+
+	// Guard to access the map containing locks to manage UserID storage entries
+	userIDLocksMapGuard uint32
 }
 
 func Factory(conf *logical.BackendConfig) (logical.Backend, error) {
@@ -65,7 +68,7 @@ func Backend(conf *logical.BackendConfig) (*framework.Backend, error) {
 
 		// Create the map of locks to hold locks that are used to modify the created
 		// UserIDs.
-		userIDLocks: map[string]*sync.RWMutex{},
+		userIDLocksMap: map[string]*sync.RWMutex{},
 	}
 
 	// Attach the paths and secrets that are to be handled by the backend

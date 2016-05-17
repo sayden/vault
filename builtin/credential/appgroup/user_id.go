@@ -219,7 +219,7 @@ func (b *backend) userIDEntryValid(s logical.Storage, selectorType, selectorValu
 	// it implies that there is no storage entry corresponding to the
 	// UserID. It is either that the ID is an invalid one or that the
 	// UserID is expired. Fail the validation.
-	lock := b.userIDLocks[userID]
+	lock := b.userIDLocksMap[userID]
 	if lock == nil {
 		return false, nil
 	}
@@ -235,7 +235,7 @@ func (b *backend) userIDEntryValid(s logical.Storage, selectorType, selectorValu
 	} else if entry == nil {
 		lock.RUnlock()
 		// There exists a lock for the UserID, but storage entry is empty.
-		b.userIDLocks[userID] = nil
+		b.userIDLocksMap[userID] = nil
 		return false, nil
 	} else if err := entry.DecodeJSON(&result); err != nil {
 		lock.RUnlock()
@@ -263,7 +263,7 @@ func (b *backend) userIDEntryValid(s logical.Storage, selectorType, selectorValu
 		return false, err
 	} else if entry == nil {
 		// There exists a lock for the UserID, but storage entry is empty.
-		b.userIDLocks[userID] = nil
+		b.userIDLocksMap[userID] = nil
 		return false, nil
 	} else if err := entry.DecodeJSON(&result); err != nil {
 		return false, err
@@ -287,7 +287,7 @@ func (b *backend) userIDEntryValid(s logical.Storage, selectorType, selectorValu
 			}
 		}
 		// Reset the lock that is used to modify the UserID's storage entry.
-		b.userIDLocks[userID] = nil
+		b.userIDLocksMap[userID] = nil
 	} else {
 		// If the use count is greater than one, decrement it and update the last updated time.
 		result.NumUses -= 1
@@ -308,7 +308,7 @@ func (b *backend) userIDEntryValid(s logical.Storage, selectorType, selectorValu
 // map is the UserID itself. During login, if the UserID supplied is not
 // having a corresponding lock in the map, the login attempt fails.
 func (b *backend) registerUserIDEntry(s logical.Storage, selectorType, selectorValue, userID string, userIDEntry *userIDStorageEntry) error {
-	if b.userIDLocks[userID] != nil {
+	if b.userIDLocksMap[userID] != nil {
 		return fmt.Errorf("user ID is already registered")
 	}
 
@@ -336,7 +336,7 @@ func (b *backend) registerUserIDEntry(s logical.Storage, selectorType, selectorV
 
 	// After the storage entry is created, create a lock to access the storage entry
 	// The UserID entry which is stored above can/should only be modified using this lock.
-	b.userIDLocks[userID] = &sync.RWMutex{}
+	b.userIDLocksMap[userID] = &sync.RWMutex{}
 	return nil
 }
 
