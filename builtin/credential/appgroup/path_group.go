@@ -21,10 +21,10 @@ type groupStorageEntry struct {
 	// Number of times the UserID generated against the Group can be used to perform login
 	NumUses int `json:"num_uses" structs:"num_uses" mapstructure:"num_uses"`
 
-	// Duration (less than the backend's mount) after which a UserID generated against the Group will expire
+	// Duration (less than the backend mount's max TTL) after which a UserID generated against the Group will expire
 	UserIDTTL time.Duration `json:"userid_ttl" structs:"userid_ttl" mapstructure:"userid_ttl"`
 
-	// Duration before which an issued token should renew itself
+	// Duration before which an issued token must be renewed
 	TokenTTL time.Duration `json:"token_ttl" structs:"token_ttl" mapstructure:"token_ttl"`
 
 	// Duration after which an issued token should not be allowed to be renewed
