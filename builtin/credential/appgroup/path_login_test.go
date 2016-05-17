@@ -33,6 +33,22 @@ func TestBackend_generic_login(t *testing.T) {
 
 	resp, err = b.HandleRequest(genericCredsReq)
 	failOnError(t, resp, err)
+
+	loginData := map[string]interface{}{
+		"selector": "generic",
+		"user_id":  resp.Data["user_id"],
+	}
+	loginReq := &logical.Request{
+		Operation: logical.UpdateOperation,
+		Path:      "login",
+		Storage:   storage,
+		Data:      loginData,
+	}
+	resp, err = b.HandleRequest(loginReq)
+	failOnError(t, resp, err)
+	if resp.Auth == nil {
+		t.Fatalf("expected a non-nil auth object in the response")
+	}
 }
 
 func TestBackend_group_login(t *testing.T) {
