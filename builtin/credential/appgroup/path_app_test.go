@@ -10,6 +10,26 @@ import (
 	"github.com/mitchellh/mapstructure"
 )
 
+func createApp(t *testing.T, b *backend, s logical.Storage, appName, policies string) {
+	appData := map[string]interface{}{
+		"policies":      policies,
+		"num_uses":      10,
+		"userid_ttl":    300,
+		"token_ttl":     400,
+		"token_max_ttl": 500,
+		"wrapped":       200,
+	}
+	appReq := &logical.Request{
+		Operation: logical.CreateOperation,
+		Path:      "app/" + appName,
+		Storage:   s,
+		Data:      appData,
+	}
+
+	resp, err := b.HandleRequest(appReq)
+	failOnError(t, resp, err)
+}
+
 func TestBackend_app_creds(t *testing.T) {
 	var resp *logical.Response
 	var err error

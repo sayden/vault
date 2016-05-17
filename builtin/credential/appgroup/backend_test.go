@@ -38,7 +38,6 @@ func createBackendWithStorage(t *testing.T) (*backend, *logical.InmemStorage) {
 }
 
 func createBackend(conf *logical.BackendConfig) (*backend, error) {
-	// Initialize the salt
 	salt, err := salt.NewSalt(conf.StorageView, &salt.Config{
 		HashFunc: salt.SHA256Hash,
 	})
@@ -46,19 +45,19 @@ func createBackend(conf *logical.BackendConfig) (*backend, error) {
 		return nil, err
 	}
 
-	// Create a backend object
 	b := &backend{
-		salt:           salt,
-		appLock:        &sync.RWMutex{},
-		groupLock:      &sync.RWMutex{},
-		genericLock:    &sync.RWMutex{},
-		userIDLocksMap: map[string]*sync.RWMutex{},
+		salt:               salt,
+		appLock:            &sync.RWMutex{},
+		groupLock:          &sync.RWMutex{},
+		genericLock:        &sync.RWMutex{},
+		userIDLocksMap:     map[string]*sync.RWMutex{},
+		userIDLocksMapLock: &sync.RWMutex{},
 	}
 
-	// Attach the paths and secrets that are to be handled by the backend
 	b.Backend = &framework.Backend{
-		Help:      backendHelp,
-		AuthRenew: b.pathLoginRenew,
+		PeriodicFunc: b.periodicFunc,
+		Help:         backendHelp,
+		AuthRenew:    b.pathLoginRenew,
 		PathsSpecial: &logical.Paths{
 			Unauthenticated: []string{
 				"login",
@@ -70,6 +69,7 @@ func createBackend(conf *logical.BackendConfig) (*backend, error) {
 			genericPaths(b),
 			[]*framework.Path{
 				pathLogin(b),
+				pathTidyUserID(b),
 			},
 		),
 	}

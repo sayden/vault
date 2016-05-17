@@ -32,7 +32,7 @@ type backend struct {
 	userIDLocksMap map[string]*sync.RWMutex
 
 	// Guard to access the map containing locks to manage UserID storage entries
-	userIDLocksMapGuard uint32
+	userIDLocksMapLock *sync.RWMutex
 }
 
 func Factory(conf *logical.BackendConfig) (logical.Backend, error) {
@@ -69,6 +69,9 @@ func Backend(conf *logical.BackendConfig) (*framework.Backend, error) {
 		// Create the map of locks to hold locks that are used to modify the created
 		// UserIDs.
 		userIDLocksMap: map[string]*sync.RWMutex{},
+
+		// Create a lock to safely access the map of UserID locks
+		userIDLocksMapLock: &sync.RWMutex{},
 	}
 
 	// Attach the paths and secrets that are to be handled by the backend

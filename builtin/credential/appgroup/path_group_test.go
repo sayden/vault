@@ -10,6 +10,26 @@ import (
 	"github.com/mitchellh/mapstructure"
 )
 
+func createGroup(t *testing.T, b *backend, s logical.Storage, groupName, apps, additionalPolicies string) {
+	groupData := map[string]interface{}{
+		"apps":                apps,
+		"additional_policies": additionalPolicies,
+		"num_uses":            10,
+		"userid_ttl":          300,
+		"token_ttl":           400,
+		"token_max_ttl":       500,
+		"wrapped":             200,
+	}
+	groupReq := &logical.Request{
+		Operation: logical.CreateOperation,
+		Path:      "group/" + groupName,
+		Storage:   s,
+		Data:      groupData,
+	}
+
+	resp, err := b.HandleRequest(groupReq)
+	failOnError(t, resp, err)
+}
 func TestBackend_group_creds(t *testing.T) {
 	var resp *logical.Response
 	var err error
