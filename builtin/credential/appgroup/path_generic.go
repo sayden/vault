@@ -35,9 +35,9 @@ type genericStorageEntry struct {
 
 	// If set, activates cubbyhole mode for the UserIDs generated in the generic mode.
 	// An intermediary token will have the actual UserID reponse written in its cubbyhole.
-	// The value of Wrapped will be the duration after which the intermediary token
+	// The value of WrapTTL will be the duration after which the intermediary token
 	// along with its cubbyhole will be destroyed.
-	Wrapped time.Duration `json:"wrapped" structs:"wrapped" mapstructure:"wrapped"`
+	WrapTTL time.Duration `json:"wrap_ttl" structs:"wrap_ttl" mapstructure:"wrap_ttl"`
 
 	// Along with the combined set of Apps' and Groups' policies, the policies in this
 	// list will be added to capabilities of the token issued, when a UserID generated
@@ -89,11 +89,11 @@ addition to those, a set of policies can be assigned using this.
 					Type:        framework.TypeDurationSecond,
 					Description: "Duration in seconds after which the issued token should not be allowed to be renewed.",
 				},
-				"wrapped": &framework.FieldSchema{
+				"wrap_ttl": &framework.FieldSchema{
 					Type: framework.TypeDurationSecond,
 					Description: `Duration in seconds, if specified, enables Cubbyhole mode. In this mode, a
 UserID will not be returned. Instead a new token will be returned. This token
-will have the UserID stored in its Cubbyhole. The value represented by 'wrapped'
+will have the UserID stored in its Cubbyhole. The value represented by 'wrap_ttl'
 will be the duration after which the returned token expires.
 `,
 				},
@@ -148,11 +148,11 @@ addition to those, a set of policies can be assigned using this.
 					Type:        framework.TypeDurationSecond,
 					Description: "Duration in seconds after which the issued token should not be allowed to be renewed.",
 				},
-				"wrapped": &framework.FieldSchema{
+				"wrap_ttl": &framework.FieldSchema{
 					Type: framework.TypeDurationSecond,
 					Description: `Duration in seconds, if specified, enables Cubbyhole mode. In this mode, a
 UserID will not be returned. Instead a new token will be returned. This token
-will have the UserID stored in its Cubbyhole. The value represented by 'wrapped'
+will have the UserID stored in its Cubbyhole. The value represented by 'wrap_ttl'
 will be the duration after which the returned token expires.
 `,
 				},
@@ -229,7 +229,7 @@ func (b *backend) handleGenericCredsCommon(req *logical.Request, data *framework
 		UserIDTTL:          time.Second * time.Duration(data.Get("userid_ttl").(int)),
 		TokenTTL:           time.Second * time.Duration(data.Get("token_ttl").(int)),
 		TokenMaxTTL:        time.Second * time.Duration(data.Get("token_max_ttl").(int)),
-		Wrapped:            time.Second * time.Duration(data.Get("wrapped").(int)),
+		WrapTTL:            time.Second * time.Duration(data.Get("wrap_ttl").(int)),
 	}
 
 	if len(generic.Groups) == 0 && len(generic.Apps) == 0 {

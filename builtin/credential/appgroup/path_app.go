@@ -31,9 +31,9 @@ type appStorageEntry struct {
 
 	// If set, activates cubbyhole mode for the UserIDs generated against the App.
 	// An intermediary token will have the actual UserID reponse written in its cubbyhole.
-	// The value of Wrapped will be the duration after which the intermediary token
+	// The value of WrapTTL will be the duration after which the intermediary token
 	// along with its cubbyhole will be destroyed.
-	Wrapped time.Duration `json:"wrapped" structs:"wrapped" mapstructure:"wrapped"`
+	WrapTTL time.Duration `json:"wrap_ttl" structs:"wrap_ttl" mapstructure:"wrap_ttl"`
 }
 
 // appPaths creates all the paths that are used to register and manage an App.
@@ -46,7 +46,7 @@ type appStorageEntry struct {
 // app/userid-ttl
 // app/token-ttl
 // app/token-max-ttl
-// app/wrapped
+// app/wrap-ttl
 // app/<app_name>/creds
 // app/<app_name>/creds-specific
 func appPaths(b *backend) []*framework.Path {
@@ -87,12 +87,12 @@ func appPaths(b *backend) []*framework.Path {
 					Type:        framework.TypeDurationSecond,
 					Description: "Duration in seconds after which the issued token should not be allowed to be renewed.",
 				},
-				"wrapped": &framework.FieldSchema{
+				"wrap_ttl": &framework.FieldSchema{
 					Type: framework.TypeDurationSecond,
 					Description: `Duration in seconds, if specified, enables the Cubbyhole mode. In this mode,
 the UserID creation endpoints will not return the UserID directly. Instead,
 a new token will be returned with the UserID stored in its Cubbyhole. The
-value of 'wrapped' is the duration after which the returned token expires.
+value of 'wrap_ttl' is the duration after which the returned token expires.
 `,
 				},
 			},
@@ -206,28 +206,28 @@ value of 'wrapped' is the duration after which the returned token expires.
 			HelpDescription: strings.TrimSpace(appHelp["app-token-max-ttl"][1]),
 		},
 		&framework.Path{
-			Pattern: "app/" + framework.GenericNameRegex("app_name") + "/wrapped$",
+			Pattern: "app/" + framework.GenericNameRegex("app_name") + "/wrap-ttl$",
 			Fields: map[string]*framework.FieldSchema{
 				"app_name": &framework.FieldSchema{
 					Type:        framework.TypeString,
 					Description: "Name of the App.",
 				},
-				"wrapped": &framework.FieldSchema{
+				"wrap_ttl": &framework.FieldSchema{
 					Type: framework.TypeDurationSecond,
 					Description: `Duration in seconds, if specified, enables the Cubbyhole mode. In this mode,
 the UserID creation endpoints will not return the UserID directly. Instead,
 a new token will be returned with the UserID stored in its Cubbyhole. The
-value of 'wrapped' is the duration after which the returned token expires.
+value of 'wrap_ttl' is the duration after which the returned token expires.
 `,
 				},
 			},
 			Callbacks: map[logical.Operation]framework.OperationFunc{
-				logical.UpdateOperation: b.pathAppWrappedUpdate,
-				logical.ReadOperation:   b.pathAppWrappedRead,
-				logical.DeleteOperation: b.pathAppWrappedDelete,
+				logical.UpdateOperation: b.pathAppWrapTTLUpdate,
+				logical.ReadOperation:   b.pathAppWrapTTLRead,
+				logical.DeleteOperation: b.pathAppWrapTTLDelete,
 			},
-			HelpSynopsis:    strings.TrimSpace(appHelp["app-wrapped"][0]),
-			HelpDescription: strings.TrimSpace(appHelp["app-wrapped"][1]),
+			HelpSynopsis:    strings.TrimSpace(appHelp["app-wrap-ttl"][0]),
+			HelpDescription: strings.TrimSpace(appHelp["app-wrap-ttl"][1]),
 		},
 		&framework.Path{
 			Pattern: "app/" + framework.GenericNameRegex("app_name") + "/creds$",
@@ -375,8 +375,8 @@ func (b *backend) pathAppCreateUpdate(req *logical.Request, data *framework.Fiel
 	}
 
 	// Update only if value is supplied. Defaults to zero.
-	if wrappedRaw, ok := data.GetOk("wrapped"); ok {
-		app.Wrapped = time.Duration(wrappedRaw.(int)) * time.Second
+	if wrapTTLRaw, ok := data.GetOk("wrap_ttl"); ok {
+		app.WrapTTL = time.Duration(wrapTTLRaw.(int)) * time.Second
 	}
 
 	// Store the entry.
@@ -399,7 +399,7 @@ func (b *backend) pathAppRead(req *logical.Request, data *framework.FieldData) (
 		app.UserIDTTL = app.UserIDTTL / time.Second
 		app.TokenTTL = app.TokenTTL / time.Second
 		app.TokenMaxTTL = app.TokenMaxTTL / time.Second
-		app.Wrapped = app.Wrapped / time.Second
+		app.WrapTTL = app.WrapTTL / time.Second
 
 		return &logical.Response{
 			Data: structs.New(app).Map(),
@@ -736,7 +736,7 @@ func (b *backend) pathAppTokenMaxTTLDelete(req *logical.Request, data *framework
 	return nil, b.setAppEntry(req.Storage, appName, app)
 }
 
-func (b *backend) pathAppWrappedUpdate(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+func (b *backend) pathAppWrapTTLUpdate(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
 	appName := data.Get("app_name").(string)
 	if appName == "" {
 		return logical.ErrorResponse("missing app_name"), nil
@@ -750,15 +750,15 @@ func (b *backend) pathAppWrappedUpdate(req *logical.Request, data *framework.Fie
 		return nil, nil
 	}
 
-	if wrappedRaw, ok := data.GetOk("wrapped"); ok {
-		app.Wrapped = time.Duration(wrappedRaw.(int)) * time.Second
+	if wrapTTLRaw, ok := data.GetOk("wrap_ttl"); ok {
+		app.WrapTTL = time.Duration(wrapTTLRaw.(int)) * time.Second
 		return nil, b.setAppEntry(req.Storage, appName, app)
 	} else {
-		return logical.ErrorResponse("missing wrapped"), nil
+		return logical.ErrorResponse("missing wrap_ttl"), nil
 	}
 }
 
-func (b *backend) pathAppWrappedRead(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+func (b *backend) pathAppWrapTTLRead(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
 	appName := data.Get("app_name").(string)
 	if appName == "" {
 		return logical.ErrorResponse("missing app_name"), nil
@@ -769,16 +769,16 @@ func (b *backend) pathAppWrappedRead(req *logical.Request, data *framework.Field
 	} else if app == nil {
 		return nil, nil
 	} else {
-		app.Wrapped = app.Wrapped / time.Second
+		app.WrapTTL = app.WrapTTL / time.Second
 		return &logical.Response{
 			Data: map[string]interface{}{
-				"wrapped": app.Wrapped,
+				"wrap_ttl": app.WrapTTL,
 			},
 		}, nil
 	}
 }
 
-func (b *backend) pathAppWrappedDelete(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+func (b *backend) pathAppWrapTTLDelete(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
 	appName := data.Get("app_name").(string)
 	if appName == "" {
 		return logical.ErrorResponse("missing app_name"), nil
@@ -792,7 +792,7 @@ func (b *backend) pathAppWrappedDelete(req *logical.Request, data *framework.Fie
 		return nil, nil
 	}
 
-	app.Wrapped = (&appStorageEntry{}).Wrapped
+	app.WrapTTL = (&appStorageEntry{}).WrapTTL
 
 	return nil, b.setAppEntry(req.Storage, appName, app)
 }
@@ -902,13 +902,13 @@ defines the maximum lifetime of the tokens issued, after which the tokens
 cannot be renewed. A reauthentication is required after this duration.
 This value will be capped by the backend mount's maximum TTL value.`,
 	},
-	"app-wrapped": {
+	"app-wrap-ttl": {
 		"Duration in seconds, the lifetime of the wrapped token.",
 		`Duration in seconds, if set, activates cubbyhole mode for the response.
 In the cubbyhole mode, the generated UserID will not be returned as-is.
 Instead, the response containing the UserID will be written in the
 cubbyhole of a new token and this new token will be returned as a
-response. The value of 'wrapped' defines the lifetime of token which
+response. The value of 'wrap_ttl' defines the lifetime of token which
 contains the response in its cubbyhole.`,
 	},
 	"app-creds": {

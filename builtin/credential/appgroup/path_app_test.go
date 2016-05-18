@@ -17,7 +17,7 @@ func createApp(t *testing.T, b *backend, s logical.Storage, appName, policies st
 		"userid_ttl":    300,
 		"token_ttl":     400,
 		"token_max_ttl": 500,
-		"wrapped":       200,
+		"wrap_ttl":      200,
 	}
 	appReq := &logical.Request{
 		Operation: logical.CreateOperation,
@@ -41,7 +41,7 @@ func TestBackend_app_creds(t *testing.T) {
 		"userid_ttl":    300,
 		"token_ttl":     400,
 		"token_max_ttl": 500,
-		"wrapped":       200,
+		"wrap_ttl":      200,
 	}
 	appReq := &logical.Request{
 		Operation: logical.CreateOperation,
@@ -88,7 +88,7 @@ func TestBackend_app_CRUD(t *testing.T) {
 		"userid_ttl":    300,
 		"token_ttl":     400,
 		"token_max_ttl": 500,
-		"wrapped":       200,
+		"wrap_ttl":      200,
 	}
 	appReq := &logical.Request{
 		Operation: logical.CreateOperation,
@@ -110,7 +110,7 @@ func TestBackend_app_CRUD(t *testing.T) {
 		"userid_ttl":    300,
 		"token_ttl":     400,
 		"token_max_ttl": 500,
-		"wrapped":       200,
+		"wrap_ttl":      200,
 	}
 	var expectedStruct appStorageEntry
 	err = mapstructure.Decode(expected, &expectedStruct)
@@ -134,7 +134,7 @@ func TestBackend_app_CRUD(t *testing.T) {
 		"userid_ttl":    3000,
 		"token_ttl":     4000,
 		"token_max_ttl": 5000,
-		"wrapped":       2000,
+		"wrap_ttl":      2000,
 	}
 	appReq.Data = appData
 	appReq.Operation = logical.UpdateOperation
@@ -152,7 +152,7 @@ func TestBackend_app_CRUD(t *testing.T) {
 		"userid_ttl":    3000,
 		"token_ttl":     4000,
 		"token_max_ttl": 5000,
-		"wrapped":       2000,
+		"wrap_ttl":      2000,
 	}
 	err = mapstructure.Decode(expected, &expectedStruct)
 	if err != nil {
@@ -293,20 +293,20 @@ func TestBackend_app_CRUD(t *testing.T) {
 		t.Fatalf("expected value to be reset")
 	}
 
-	// RUD for wrapped field
-	appReq.Path = "app/app1/wrapped"
+	// RUD for wrap_ttl field
+	appReq.Path = "app/app1/wrap-ttl"
 	appReq.Operation = logical.ReadOperation
 	resp, err = b.HandleRequest(appReq)
 	failOnError(t, resp, err)
-	appReq.Data = map[string]interface{}{"wrapped": 2001}
+	appReq.Data = map[string]interface{}{"wrap_ttl": 2001}
 	appReq.Operation = logical.UpdateOperation
 	resp, err = b.HandleRequest(appReq)
 	failOnError(t, resp, err)
 	appReq.Operation = logical.ReadOperation
 	resp, err = b.HandleRequest(appReq)
 	failOnError(t, resp, err)
-	if resp.Data["wrapped"].(time.Duration) != 2001 {
-		t.Fatalf("bad: wrapped: expected:2001 actual:%d\n", resp.Data["wrapped"].(time.Duration))
+	if resp.Data["wrap_ttl"].(time.Duration) != 2001 {
+		t.Fatalf("bad: wrap_ttl: expected:2001 actual:%d\n", resp.Data["wrap_ttl"].(time.Duration))
 	}
 	appReq.Operation = logical.DeleteOperation
 	resp, err = b.HandleRequest(appReq)
@@ -314,7 +314,7 @@ func TestBackend_app_CRUD(t *testing.T) {
 	appReq.Operation = logical.ReadOperation
 	resp, err = b.HandleRequest(appReq)
 	failOnError(t, resp, err)
-	if resp.Data["wrapped"].(time.Duration) != 0 {
+	if resp.Data["wrap_ttl"].(time.Duration) != 0 {
 		t.Fatalf("expected value to be reset")
 	}
 

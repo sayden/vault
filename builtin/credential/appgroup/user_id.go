@@ -47,7 +47,7 @@ type validationResponse struct {
 	SelectorValue string        `json:"selector_value" structs:"selector_value" mapstructure:"selector_value"`
 	TokenTTL      time.Duration `json:"token_ttl" structs:"token_ttl" mapstructure:"token_ttl"`
 	TokenMaxTTL   time.Duration `json:"token_max_ttl" structs:"token_max_ttl" mapstructure:"token_max_ttl"`
-	Wrapped       time.Duration `json:"wrapped" structs:"wrapped" mapstructure:"wrapped"`
+	WrapTTL       time.Duration `json:"wrap_ttl" structs:"wrap_ttl" mapstructure:"wrap_ttl"`
 	Policies      []string      `json:"policies" structs:"policies" mapstructure:"policies"`
 }
 
@@ -105,8 +105,6 @@ func (b *backend) validateCredentials(s logical.Storage, selector, userID string
 }
 
 // Check if there exists an entry in the name of selectorValue for the selectorType supplied.
-// Prepares a response containing the combined set of policies, TTL and Wrapped values that are
-// applicable to the login.
 func (b *backend) validateSelector(s logical.Storage, selectorType, selectorValue string) (*validationResponse, error) {
 	resp := &validationResponse{
 		SelectorType:  selectorType,
@@ -124,7 +122,7 @@ func (b *backend) validateSelector(s logical.Storage, selectorType, selectorValu
 		resp.Policies = app.Policies
 		resp.TokenTTL = app.TokenTTL
 		resp.TokenMaxTTL = app.TokenMaxTTL
-		resp.Wrapped = app.Wrapped
+		resp.WrapTTL = app.WrapTTL
 	case selectorTypeGroup:
 		group, err := b.groupEntry(s, selectorValue)
 		if err != nil {
@@ -145,7 +143,7 @@ func (b *backend) validateSelector(s logical.Storage, selectorType, selectorValu
 
 		resp.TokenTTL = group.TokenTTL
 		resp.TokenMaxTTL = group.TokenMaxTTL
-		resp.Wrapped = group.Wrapped
+		resp.WrapTTL = group.WrapTTL
 	case selectorTypeGeneric:
 		generic, err := b.genericEntry(s, selectorValue)
 		if err != nil {
@@ -183,7 +181,7 @@ func (b *backend) validateSelector(s logical.Storage, selectorType, selectorValu
 
 		resp.TokenTTL = generic.TokenTTL
 		resp.TokenMaxTTL = generic.TokenMaxTTL
-		resp.Wrapped = generic.Wrapped
+		resp.WrapTTL = generic.WrapTTL
 	default:
 		return nil, fmt.Errorf("unknown selector type")
 	}
@@ -197,11 +195,11 @@ func (b *backend) validateSelector(s logical.Storage, selectorType, selectorValu
 
 	resp.Policies = policyutil.SanitizePolicies(resp.Policies)
 
-	// Even though wrapped is unrelated to the token_ttl and token_max_ttl
+	// Even though wrap_ttl is unrelated to the token_ttl and token_max_ttl
 	// values, since it is issued out of the backend, it should respect the
 	// backend's boundaries.
-	if resp.Wrapped > b.System().MaxLeaseTTL() {
-		resp.Wrapped = b.System().MaxLeaseTTL()
+	if resp.WrapTTL > b.System().MaxLeaseTTL() {
+		resp.WrapTTL = b.System().MaxLeaseTTL()
 	}
 
 	return resp, nil

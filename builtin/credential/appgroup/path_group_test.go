@@ -18,7 +18,7 @@ func createGroup(t *testing.T, b *backend, s logical.Storage, groupName, apps, a
 		"userid_ttl":          300,
 		"token_ttl":           400,
 		"token_max_ttl":       500,
-		"wrapped":             200,
+		"wrap_ttl":            200,
 	}
 	groupReq := &logical.Request{
 		Operation: logical.CreateOperation,
@@ -41,7 +41,7 @@ func TestBackend_group_creds(t *testing.T) {
 		"userid_ttl":    300,
 		"token_ttl":     400,
 		"token_max_ttl": 500,
-		"wrapped":       200,
+		"wrap_ttl":      200,
 	}
 	appReq := &logical.Request{
 		Operation: logical.CreateOperation,
@@ -60,7 +60,7 @@ func TestBackend_group_creds(t *testing.T) {
 		"userid_ttl":          301,
 		"token_ttl":           401,
 		"token_max_ttl":       501,
-		"wrapped":             201,
+		"wrap_ttl":            201,
 	}
 
 	groupReq := &logical.Request{
@@ -108,7 +108,7 @@ func TestBackend_group_CRUD(t *testing.T) {
 		"userid_ttl":          300,
 		"token_ttl":           400,
 		"token_max_ttl":       500,
-		"wrapped":             200,
+		"wrap_ttl":            200,
 	}
 	groupReq := &logical.Request{
 		Operation: logical.CreateOperation,
@@ -131,7 +131,7 @@ func TestBackend_group_CRUD(t *testing.T) {
 		"userid_ttl":          300,
 		"token_ttl":           400,
 		"token_max_ttl":       500,
-		"wrapped":             200,
+		"wrap_ttl":            200,
 	}
 	var expectedStruct appStorageEntry
 	err = mapstructure.Decode(expected, &expectedStruct)
@@ -156,7 +156,7 @@ func TestBackend_group_CRUD(t *testing.T) {
 		"userid_ttl":          3000,
 		"token_ttl":           4000,
 		"token_max_ttl":       5000,
-		"wrapped":             2000,
+		"wrap_ttl":            2000,
 	}
 	groupReq.Data = groupData
 	groupReq.Operation = logical.UpdateOperation
@@ -175,7 +175,7 @@ func TestBackend_group_CRUD(t *testing.T) {
 		"userid_ttl":          3000,
 		"token_ttl":           4000,
 		"token_max_ttl":       5000,
-		"wrapped":             2000,
+		"wrap_ttl":            2000,
 	}
 	err = mapstructure.Decode(expected, &expectedStruct)
 	if err != nil {
@@ -341,20 +341,20 @@ func TestBackend_group_CRUD(t *testing.T) {
 		t.Fatalf("expected value to be reset")
 	}
 
-	// RUD for wrapped field
-	groupReq.Path = "group/group1/wrapped"
+	// RUD for wrap_ttl field
+	groupReq.Path = "group/group1/wrap-ttl"
 	groupReq.Operation = logical.ReadOperation
 	resp, err = b.HandleRequest(groupReq)
 	failOnError(t, resp, err)
-	groupReq.Data = map[string]interface{}{"wrapped": 2001}
+	groupReq.Data = map[string]interface{}{"wrap_ttl": 2001}
 	groupReq.Operation = logical.UpdateOperation
 	resp, err = b.HandleRequest(groupReq)
 	failOnError(t, resp, err)
 	groupReq.Operation = logical.ReadOperation
 	resp, err = b.HandleRequest(groupReq)
 	failOnError(t, resp, err)
-	if resp.Data["wrapped"].(time.Duration) != 2001 {
-		t.Fatalf("bad: wrapped: expected:2001 actual:%d\n", resp.Data["wrapped"].(time.Duration))
+	if resp.Data["wrap_ttl"].(time.Duration) != 2001 {
+		t.Fatalf("bad: wrap_ttl: expected:2001 actual:%d\n", resp.Data["wrap_ttl"].(time.Duration))
 	}
 	groupReq.Operation = logical.DeleteOperation
 	resp, err = b.HandleRequest(groupReq)
@@ -362,7 +362,7 @@ func TestBackend_group_CRUD(t *testing.T) {
 	groupReq.Operation = logical.ReadOperation
 	resp, err = b.HandleRequest(groupReq)
 	failOnError(t, resp, err)
-	if resp.Data["wrapped"].(time.Duration) != 0 {
+	if resp.Data["wrap_ttl"].(time.Duration) != 0 {
 		t.Fatalf("expected value to be reset")
 	}
 
