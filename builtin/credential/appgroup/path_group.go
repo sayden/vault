@@ -30,12 +30,6 @@ type groupStorageEntry struct {
 	// Duration after which an issued token should not be allowed to be renewed
 	TokenMaxTTL time.Duration `json:"token_max_ttl" structs:"token_max_ttl" mapstructure:"token_max_ttl"`
 
-	// If set, activates cubbyhole mode for the UserIDs generated against the Group.
-	// An intermediary token will have the actual UserID reponse written in its cubbyhole.
-	// The value of WrapTTL will be the duration after which the intermediary token
-	// along with its cubbyhole will be destroyed.
-	WrapTTL time.Duration `json:"wrap_ttl" structs:"wrap_ttl" mapstructure:"wrap_ttl"`
-
 	// Along with the combined set of Apps' policies, the policies in this list will be
 	// added to capabilities of the token issued, when a UserID generated against a Group
 	// is used perform the login.
@@ -52,7 +46,6 @@ type groupStorageEntry struct {
 // group/userid-ttl
 // group/token-ttl
 // group/token-max-ttl
-// group/wrap-ttl
 // group/<group_name>/creds
 // group/<group_name>/creds-specific
 func groupPaths(b *backend) []*framework.Path {
@@ -100,14 +93,6 @@ addition to those, a set of policies can be assigned using this.
 				"token_max_ttl": &framework.FieldSchema{
 					Type:        framework.TypeDurationSecond,
 					Description: "Duration in seconds after which the issued token should not be allowed to be renewed.",
-				},
-				"wrap_ttl": &framework.FieldSchema{
-					Type: framework.TypeDurationSecond,
-					Description: `Duration in seconds, if specified, enables the Cubbyhole mode. In this mode,
-the UserID creation endpoints will not return the UserID directly. Instead,
-a new token will be returned with the UserID stored in its Cubbyhole. The
-value of 'wrap_ttl' is the duration after which the returned token expires.
-`,
 				},
 			},
 			Callbacks: map[logical.Operation]framework.OperationFunc{
@@ -243,30 +228,6 @@ addition to those, a set of policies can be assigned using this.
 			},
 			HelpSynopsis:    strings.TrimSpace(groupHelp["group-token-max-ttl"][0]),
 			HelpDescription: strings.TrimSpace(groupHelp["group-token-max-ttl"][1]),
-		},
-		&framework.Path{
-			Pattern: "group/" + framework.GenericNameRegex("group_name") + "/wrap-ttl$",
-			Fields: map[string]*framework.FieldSchema{
-				"group_name": &framework.FieldSchema{
-					Type:        framework.TypeString,
-					Description: "Name of the Group.",
-				},
-				"wrap_ttl": &framework.FieldSchema{
-					Type: framework.TypeDurationSecond,
-					Description: `Duration in seconds, if specified, enables Cubbyhole mode. In this mode, a
-UserID will not be returned. Instead a new token will be returned. This token
-will have the UserID stored in its Cubbyhole. The value represented by 'wrap_ttl'
-will be the duration after which the returned token expires.
-`,
-				},
-			},
-			Callbacks: map[logical.Operation]framework.OperationFunc{
-				logical.UpdateOperation: b.pathGroupWrapTTLUpdate,
-				logical.ReadOperation:   b.pathGroupWrapTTLRead,
-				logical.DeleteOperation: b.pathGroupWrapTTLDelete,
-			},
-			HelpSynopsis:    strings.TrimSpace(groupHelp["group-wrap-ttl"][0]),
-			HelpDescription: strings.TrimSpace(groupHelp["group-wrap-ttl"][1]),
 		},
 		&framework.Path{
 			Pattern: "group/" + framework.GenericNameRegex("group_name") + "/creds$",
@@ -416,12 +377,6 @@ func (b *backend) pathGroupCreateUpdate(req *logical.Request, data *framework.Fi
 		return logical.ErrorResponse("token_ttl should not be greater than token_max_ttl"), nil
 	}
 
-	if wrapTTLRaw, ok := data.GetOk("wrap_ttl"); ok {
-		group.WrapTTL = time.Second * time.Duration(wrapTTLRaw.(int))
-	} else if req.Operation == logical.CreateOperation {
-		group.WrapTTL = time.Second * time.Duration(data.Get("wrap_ttl").(int))
-	}
-
 	// Store the entry.
 	return nil, b.setGroupEntry(req.Storage, groupName, group)
 }
@@ -442,7 +397,6 @@ func (b *backend) pathGroupRead(req *logical.Request, data *framework.FieldData)
 		group.UserIDTTL = group.UserIDTTL / time.Second
 		group.TokenTTL = group.TokenTTL / time.Second
 		group.TokenMaxTTL = group.TokenMaxTTL / time.Second
-		group.WrapTTL = group.WrapTTL / time.Second
 
 		return &logical.Response{
 			Data: structs.New(group).Map(),
@@ -834,67 +788,6 @@ func (b *backend) pathGroupTokenMaxTTLDelete(req *logical.Request, data *framewo
 	return nil, b.setGroupEntry(req.Storage, groupName, group)
 }
 
-func (b *backend) pathGroupWrapTTLUpdate(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	groupName := data.Get("group_name").(string)
-	if groupName == "" {
-		return logical.ErrorResponse("missing group_name"), nil
-	}
-
-	group, err := b.groupEntry(req.Storage, strings.ToLower(groupName))
-	if err != nil {
-		return nil, err
-	}
-	if group == nil {
-		return nil, nil
-	}
-
-	if wrapTTLRaw, ok := data.GetOk("wrap_ttl"); ok {
-		group.WrapTTL = time.Second * time.Duration(wrapTTLRaw.(int))
-		return nil, b.setGroupEntry(req.Storage, groupName, group)
-	} else {
-		return logical.ErrorResponse("missing wrap_ttl"), nil
-	}
-}
-
-func (b *backend) pathGroupWrapTTLRead(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	groupName := data.Get("group_name").(string)
-	if groupName == "" {
-		return logical.ErrorResponse("missing group_name"), nil
-	}
-
-	if group, err := b.groupEntry(req.Storage, strings.ToLower(groupName)); err != nil {
-		return nil, err
-	} else if group == nil {
-		return nil, nil
-	} else {
-		group.WrapTTL = group.WrapTTL / time.Second
-		return &logical.Response{
-			Data: map[string]interface{}{
-				"wrap_ttl": group.WrapTTL,
-			},
-		}, nil
-	}
-}
-
-func (b *backend) pathGroupWrapTTLDelete(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	groupName := data.Get("group_name").(string)
-	if groupName == "" {
-		return logical.ErrorResponse("missing group_name"), nil
-	}
-
-	group, err := b.groupEntry(req.Storage, strings.ToLower(groupName))
-	if err != nil {
-		return nil, err
-	}
-	if group == nil {
-		return nil, nil
-	}
-
-	group.WrapTTL = (&groupStorageEntry{}).WrapTTL
-
-	return nil, b.setGroupEntry(req.Storage, groupName, group)
-}
-
 func (b *backend) pathGroupCredsRead(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
 	userID, err := uuid.GenerateUUID()
 	if err != nil {
@@ -1009,13 +902,6 @@ are used to perform the login operation, then the value of 'token-max-ttl'
 defines the maximum lifetime of the tokens issued, after which the tokens
 cannot be renewed. A reauthentication is required after this duration.
 This value will be capped by the backend mount's maximux TTL value.`,
-	},
-	"group-wrap-ttl": {
-		"Duration in seconds, the lifetime of the wrapped token.",
-		`Duration in seconds, if set, activates the cubbyhole mode for the response.
-In the cubbyhole mode, the generated UserID will not be returned as-is.
-Instead, the response containing the UserID will be written in the
-cubbyhole of a new token and this new token will be returned as a response.`,
 	},
 	"group-creds": {
 		"Generate a UserID against this Group.",

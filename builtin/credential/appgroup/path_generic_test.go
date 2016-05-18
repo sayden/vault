@@ -17,7 +17,6 @@ func TestBackend_generic_creds(t *testing.T) {
 		"userid_ttl":    300,
 		"token_ttl":     400,
 		"token_max_ttl": 500,
-		"wrap_ttl":      200,
 	}
 	appReq := &logical.Request{
 		Operation: logical.CreateOperation,
@@ -36,7 +35,6 @@ func TestBackend_generic_creds(t *testing.T) {
 		"userid_ttl":          301,
 		"token_ttl":           401,
 		"token_max_ttl":       501,
-		"wrap_ttl":            201,
 	}
 
 	groupReq := &logical.Request{
@@ -57,7 +55,6 @@ func TestBackend_generic_creds(t *testing.T) {
 		"userid_ttl":          302,
 		"token_ttl":           402,
 		"token_max_ttl":       502,
-		"wrap_ttl":            202,
 	}
 
 	genericCredsReq := &logical.Request{

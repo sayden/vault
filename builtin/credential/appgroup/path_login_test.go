@@ -30,7 +30,6 @@ func TestBackend_generic_login(t *testing.T) {
 		"userid_ttl":          302,
 		"token_ttl":           402,
 		"token_max_ttl":       502,
-		"wrap_ttl":            202,
 	}
 
 	genericCredsReq := &logical.Request{

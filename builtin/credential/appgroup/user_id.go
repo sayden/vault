@@ -47,7 +47,6 @@ type validationResponse struct {
 	SelectorValue string        `json:"selector_value" structs:"selector_value" mapstructure:"selector_value"`
 	TokenTTL      time.Duration `json:"token_ttl" structs:"token_ttl" mapstructure:"token_ttl"`
 	TokenMaxTTL   time.Duration `json:"token_max_ttl" structs:"token_max_ttl" mapstructure:"token_max_ttl"`
-	WrapTTL       time.Duration `json:"wrap_ttl" structs:"wrap_ttl" mapstructure:"wrap_ttl"`
 	Policies      []string      `json:"policies" structs:"policies" mapstructure:"policies"`
 }
 
@@ -122,7 +121,6 @@ func (b *backend) validateSelector(s logical.Storage, selectorType, selectorValu
 		resp.Policies = app.Policies
 		resp.TokenTTL = app.TokenTTL
 		resp.TokenMaxTTL = app.TokenMaxTTL
-		resp.WrapTTL = app.WrapTTL
 	case selectorTypeGroup:
 		group, err := b.groupEntry(s, selectorValue)
 		if err != nil {
@@ -143,7 +141,6 @@ func (b *backend) validateSelector(s logical.Storage, selectorType, selectorValu
 
 		resp.TokenTTL = group.TokenTTL
 		resp.TokenMaxTTL = group.TokenMaxTTL
-		resp.WrapTTL = group.WrapTTL
 	case selectorTypeGeneric:
 		generic, err := b.genericEntry(s, selectorValue)
 		if err != nil {
@@ -181,7 +178,6 @@ func (b *backend) validateSelector(s logical.Storage, selectorType, selectorValu
 
 		resp.TokenTTL = generic.TokenTTL
 		resp.TokenMaxTTL = generic.TokenMaxTTL
-		resp.WrapTTL = generic.WrapTTL
 	default:
 		return nil, fmt.Errorf("unknown selector type")
 	}
@@ -194,13 +190,6 @@ func (b *backend) validateSelector(s logical.Storage, selectorType, selectorValu
 	}
 
 	resp.Policies = policyutil.SanitizePolicies(resp.Policies)
-
-	// Even though wrap_ttl is unrelated to the token_ttl and token_max_ttl
-	// values, since it is issued out of the backend, it should respect the
-	// backend's boundaries.
-	if resp.WrapTTL > b.System().MaxLeaseTTL() {
-		resp.WrapTTL = b.System().MaxLeaseTTL()
-	}
 
 	return resp, nil
 }
