@@ -328,6 +328,8 @@ func (b *backend) pathAppCreateUpdate(req *logical.Request, data *framework.Fiel
 		app.TokenMaxTTL = time.Second * time.Duration(data.Get("token_max_ttl").(int))
 	}
 
+	resp := &logical.Response{}
+
 	// Check that the TokenMaxTTL value provided is less than the TokenMaxTTL.
 	// Sanitizing the TTL and MaxTTL is not required now and can be performed
 	// at credential issue time.
@@ -335,8 +337,12 @@ func (b *backend) pathAppCreateUpdate(req *logical.Request, data *framework.Fiel
 		return logical.ErrorResponse("token_ttl should not be greater than token_max_ttl"), nil
 	}
 
+	if app.TokenMaxTTL > b.System().MaxLeaseTTL() {
+		resp.AddWarning("token_max_ttl is greater than the backend mount's maximum TTL value; issued tokens' max TTL value will be truncated")
+	}
+
 	// Store the entry.
-	return nil, b.setAppEntry(req.Storage, appName, app)
+	return resp, b.setAppEntry(req.Storage, appName, app)
 }
 
 // pathAppRead grabs a read lock and reads the options set on the App from the storage

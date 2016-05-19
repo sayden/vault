@@ -15,7 +15,7 @@ import (
 // genericStorageEntry stores all the options that are set during UserID
 // creation in "generic" mode.
 type genericStorageEntry struct {
-	// All the Groups that are to be accessible by the UseID created
+	// All the Groups that are to be accessible by the UserID created
 	Groups []string `json:"groups" structs:"groups" mapstructure:"groups"`
 
 	// All the Apps that are to be accessible by the UserID created

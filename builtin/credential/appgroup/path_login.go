@@ -45,14 +45,23 @@ func (b *backend) pathLoginRenew(req *logical.Request, data *framework.FieldData
 }
 
 func (b *backend) pathLoginUpdate(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	selector := strings.TrimSpace(data.Get("selector").(string))
-	if selector == "" {
-		return logical.ErrorResponse("missing selector"), nil
-	}
-
 	userID := strings.TrimSpace(data.Get("user_id").(string))
 	if userID == "" {
 		return logical.ErrorResponse("missing user_id"), nil
+	}
+
+	// Selector can optionally be prepended to the UserID with a `;` delimiter
+	selector := strings.TrimSpace(data.Get("selector").(string))
+	if selector == "" {
+		selectorFields := strings.SplitN(userID, ";", 2)
+		if len(selectorFields) != 2 || selectorFields[0] == "" {
+			return logical.ErrorResponse("missing selector"), nil
+		} else if selectorFields[1] == "" {
+			return logical.ErrorResponse("missing user_id"), nil
+		} else {
+			selector = selectorFields[0]
+			userID = selectorFields[1]
+		}
 	}
 
 	validateResp, err := b.validateCredentials(req.Storage, selector, userID)
