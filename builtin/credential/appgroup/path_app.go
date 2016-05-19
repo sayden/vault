@@ -197,11 +197,6 @@ func appPaths(b *backend) []*framework.Path {
 					Type:        framework.TypeString,
 					Description: "Name of the App.",
 				},
-				"user_id": &framework.FieldSchema{
-					Type:        framework.TypeString,
-					Default:     "",
-					Description: "NOT USER SUPPLIED AND UNDOCUMENTED.",
-				},
 			},
 			Callbacks: map[logical.Operation]framework.OperationFunc{
 				logical.ReadOperation: b.pathAppCredsRead,
@@ -225,8 +220,8 @@ func appPaths(b *backend) []*framework.Path {
 			Callbacks: map[logical.Operation]framework.OperationFunc{
 				logical.UpdateOperation: b.pathAppCredsSpecificUpdate,
 			},
-			HelpSynopsis:    strings.TrimSpace(appHelp["app-creds-specified"][0]),
-			HelpDescription: strings.TrimSpace(appHelp["app-creds-specified"][1]),
+			HelpSynopsis:    strings.TrimSpace(appHelp["app-creds-specific"][0]),
+			HelpDescription: strings.TrimSpace(appHelp["app-creds-specific"][1]),
 		},
 	}
 }
@@ -702,21 +697,19 @@ func (b *backend) pathAppCredsRead(req *logical.Request, data *framework.FieldDa
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate UserID:%s", err)
 	}
-	data.Raw["user_id"] = userID
-	return b.handleAppCredsCommon(req, data, false)
+	return b.handleAppCredsCommon(req, data, userID)
 }
 
 func (b *backend) pathAppCredsSpecificUpdate(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	return b.handleAppCredsCommon(req, data, true)
+	return b.handleAppCredsCommon(req, data, data.Get("user_id").(string))
 }
 
-func (b *backend) handleAppCredsCommon(req *logical.Request, data *framework.FieldData, specified bool) (*logical.Response, error) {
+func (b *backend) handleAppCredsCommon(req *logical.Request, data *framework.FieldData, userID string) (*logical.Response, error) {
 	appName := data.Get("app_name").(string)
 	if appName == "" {
 		return logical.ErrorResponse("missing app_name"), nil
 	}
 
-	userID := data.Get("user_id").(string)
 	if userID == "" {
 		return logical.ErrorResponse("missing user_id"), nil
 	}
@@ -736,13 +729,10 @@ func (b *backend) handleAppCredsCommon(req *logical.Request, data *framework.Fie
 		return nil, fmt.Errorf("failed to store user ID: %s", err)
 	}
 
-	if specified {
-		return nil, nil
-	}
-
 	return &logical.Response{
 		Data: map[string]interface{}{
-			"user_id": userID,
+			"user_id":  userID,
+			"selector": "app/" + appName,
 		},
 	}, nil
 }

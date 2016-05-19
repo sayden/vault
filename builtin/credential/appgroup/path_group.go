@@ -236,11 +236,6 @@ addition to those, a set of policies can be assigned using this.
 					Type:        framework.TypeString,
 					Description: "Name of the Group.",
 				},
-				"user_id": &framework.FieldSchema{
-					Type:        framework.TypeString,
-					Default:     "",
-					Description: "NOT USER SUPPLIED. UNDOCUMENTED.",
-				},
 			},
 			Callbacks: map[logical.Operation]framework.OperationFunc{
 				logical.ReadOperation: b.pathGroupCredsRead,
@@ -793,21 +788,19 @@ func (b *backend) pathGroupCredsRead(req *logical.Request, data *framework.Field
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate UserID:%s", err)
 	}
-	data.Raw["user_id"] = userID
-	return b.handleGroupCredsCommon(req, data, false)
+	return b.handleGroupCredsCommon(req, data, userID)
 }
 
 func (b *backend) pathGroupCredsSpecificUpdate(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	return b.handleGroupCredsCommon(req, data, true)
+	return b.handleGroupCredsCommon(req, data, data.Get("user_id").(string))
 }
 
-func (b *backend) handleGroupCredsCommon(req *logical.Request, data *framework.FieldData, specific bool) (*logical.Response, error) {
+func (b *backend) handleGroupCredsCommon(req *logical.Request, data *framework.FieldData, userID string) (*logical.Response, error) {
 	groupName := data.Get("group_name").(string)
 	if groupName == "" {
 		return logical.ErrorResponse("missing group_name"), nil
 	}
 
-	userID := data.Get("user_id").(string)
 	if userID == "" {
 		return logical.ErrorResponse("missing user_id"), nil
 	}
@@ -827,13 +820,10 @@ func (b *backend) handleGroupCredsCommon(req *logical.Request, data *framework.F
 		return nil, fmt.Errorf("failed to store user ID: %s", err)
 	}
 
-	if specific {
-		return nil, nil
-	}
-
 	return &logical.Response{
 		Data: map[string]interface{}{
-			"user_id": userID,
+			"user_id":  userID,
+			"selector": "group/" + groupName,
 		},
 	}, nil
 }

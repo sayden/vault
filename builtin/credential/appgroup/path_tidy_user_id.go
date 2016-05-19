@@ -5,6 +5,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/hashicorp/errwrap"
+	"github.com/hashicorp/go-multierror"
 	"github.com/hashicorp/vault/logical"
 	"github.com/hashicorp/vault/logical/framework"
 )
@@ -36,14 +38,15 @@ func (b *backend) tidyUserID(s logical.Storage) error {
 		return err
 	}
 
+	var result error
 	for _, userID := range userIDs {
-		userIDEntry, err := s.Get("userID/" + userID)
+		userIDEntry, err := s.Get("userid/" + userID)
 		if err != nil {
 			return fmt.Errorf("error fetching user ID %s: %s", userID, err)
 		}
 
 		if userIDEntry == nil {
-			return fmt.Errorf("entry for user ID %s is nil", userID)
+			result = multierror.Append(result, errwrap.Wrapf("[ERR] {{err}}", fmt.Errorf("entry for user ID %s is nil", userID)))
 		}
 
 		if userIDEntry.Value == nil || len(userIDEntry.Value) == 0 {
@@ -61,8 +64,7 @@ func (b *backend) tidyUserID(s logical.Storage) error {
 			}
 		}
 	}
-
-	return nil
+	return result
 }
 
 // pathTidyUserIDUpdate is used to delete the expired UserID entries

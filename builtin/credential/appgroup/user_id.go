@@ -209,12 +209,15 @@ func (b *backend) userIDEntryValid(s logical.Storage, selectorType, selectorValu
 	b.userIDLocksMapLock.RLock()
 	lock := b.userIDLocksMap[userID]
 	if lock == nil {
+		defer b.userIDLocksMapLock.RUnlock()
 		return false, nil
 	}
 
 	entryIndex := fmt.Sprintf("userid/%s/%s/%s", selectorType, selectorValue, b.salt.SaltID(strings.ToLower(userID)))
 
 	lock.RLock()
+	// It is safe to release the lock on the map of locks after acquiring the user ID lock
+	b.userIDLocksMapLock.RUnlock()
 
 	result := userIDStorageEntry{}
 	if entry, err := s.Get(entryIndex); err != nil {
@@ -240,7 +243,6 @@ func (b *backend) userIDEntryValid(s logical.Storage, selectorType, selectorValu
 	// in the storage. Switch the lock from a `read` to a `write` and update
 	// the storage entry.
 	lock.RUnlock()
-	b.userIDLocksMapLock.RUnlock()
 
 	b.userIDLocksMapLock.Lock()
 	defer b.userIDLocksMapLock.Unlock()
@@ -299,6 +301,7 @@ func (b *backend) userIDEntryValid(s logical.Storage, selectorType, selectorValu
 func (b *backend) registerUserIDEntry(s logical.Storage, selectorType, selectorValue, userID string, userIDEntry *userIDStorageEntry) error {
 	b.userIDLocksMapLock.RLock()
 	if b.userIDLocksMap[userID] != nil {
+		b.userIDLocksMapLock.RUnlock()
 		return fmt.Errorf("user ID is already registered")
 	}
 	b.userIDLocksMapLock.RUnlock()

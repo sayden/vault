@@ -83,11 +83,6 @@ addition to those, a set of policies can be assigned using this.
 					Type:        framework.TypeDurationSecond,
 					Description: "Duration in seconds after which the issued token should not be allowed to be renewed.",
 				},
-				"user_id": &framework.FieldSchema{
-					Type:        framework.TypeString,
-					Default:     "",
-					Description: "NOT USER SUPPLIED. UNDOCUMENTED.",
-				},
 			},
 
 			Callbacks: map[logical.Operation]framework.OperationFunc{
@@ -190,15 +185,14 @@ func (b *backend) pathGenericCredsUpdate(req *logical.Request, data *framework.F
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate UserID:%s", err)
 	}
-	data.Raw["user_id"] = userID
-	return b.handleGenericCredsCommon(req, data, false)
+	return b.handleGenericCredsCommon(req, data, userID)
 }
 
 func (b *backend) pathGenericCredsSpecificUpdate(req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	return b.handleGenericCredsCommon(req, data, true)
+	return b.handleGenericCredsCommon(req, data, data.Get("user_id").(string))
 }
 
-func (b *backend) handleGenericCredsCommon(req *logical.Request, data *framework.FieldData, specified bool) (*logical.Response, error) {
+func (b *backend) handleGenericCredsCommon(req *logical.Request, data *framework.FieldData, userID string) (*logical.Response, error) {
 	generic := &genericStorageEntry{
 		Groups:             strutil.ParseStrings(data.Get("groups").(string)),
 		Apps:               strutil.ParseStrings(data.Get("apps").(string)),
@@ -221,7 +215,6 @@ func (b *backend) handleGenericCredsCommon(req *logical.Request, data *framework
 		return logical.ErrorResponse("token_ttl should not be greater than token_max_ttl"), nil
 	}
 
-	userID := data.Get("user_id").(string)
 	if userID == "" {
 		return logical.ErrorResponse("missing user_id"), nil
 	}
@@ -240,13 +233,10 @@ func (b *backend) handleGenericCredsCommon(req *logical.Request, data *framework
 		return nil, fmt.Errorf("failed to store user ID: %s", err)
 	}
 
-	if specified {
-		return nil, nil
-	}
-
 	return &logical.Response{
 		Data: map[string]interface{}{
-			"user_id": userID,
+			"user_id":  userID,
+			"selector": "generic",
 		},
 	}, nil
 }

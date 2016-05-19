@@ -73,7 +73,7 @@ func TestBackend_generic_creds(t *testing.T) {
 	genericData["user_id"] = "abcd123"
 	resp, err = b.HandleRequest(genericCredsReq)
 	failOnError(t, resp, err)
-	if resp != nil {
+	if resp.Data["user_id"] != "abcd123" {
 		t.Fatalf("failed to set specific user_id to generic")
 	}
 }

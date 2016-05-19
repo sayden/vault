@@ -89,7 +89,7 @@ func TestBackend_group_creds(t *testing.T) {
 	groupCredsReq.Operation = logical.UpdateOperation
 	resp, err = b.HandleRequest(groupCredsReq)
 	failOnError(t, resp, err)
-	if resp != nil {
+	if resp.Data["user_id"] != "abcd123" {
 		t.Fatalf("failed to set specific user_id to group")
 	}
 }

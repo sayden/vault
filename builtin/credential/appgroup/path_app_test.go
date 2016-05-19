@@ -70,7 +70,7 @@ func TestBackend_app_creds(t *testing.T) {
 	appCredsReq.Operation = logical.UpdateOperation
 	resp, err = b.HandleRequest(appCredsReq)
 	failOnError(t, resp, err)
-	if resp != nil {
+	if resp.Data["user_id"] != "abcd123" {
 		t.Fatalf("failed to set specific user_id to app")
 	}
 }
