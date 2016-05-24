@@ -32,12 +32,15 @@ func (b *backend) secretTokenRenew(
 
 func secretTokenRevoke(
 	req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
-	c, err := client(req.Storage)
-	if err != nil {
-		return logical.ErrorResponse(err.Error()), nil
+	c, userErr, intErr := client(req.Storage)
+	if intErr != nil {
+		return nil, intErr
+	}
+	if userErr != nil {
+		return logical.ErrorResponse(userErr.Error()), nil
 	}
 
-	_, err = c.ACL().Destroy(d.Get("token").(string), nil)
+	_, err := c.ACL().Destroy(d.Get("token").(string), nil)
 	if err != nil {
 		return logical.ErrorResponse(err.Error()), nil
 	}
